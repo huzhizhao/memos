@@ -1,4 +1,5 @@
-import { Divider, IconButton, Tooltip } from "@mui/joy";
+import { Divider, IconButton, Input, Tooltip } from "@mui/joy";
+import { includes } from "lodash-es";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { showCommonDialog } from "@/components/Dialog/CommonDialog";
@@ -11,11 +12,6 @@ import useLoading from "@/hooks/useLoading";
 import i18n from "@/i18n";
 import { Resource } from "@/types/proto/api/v2/resource_service";
 import { useTranslate } from "@/utils/i18n";
-
-const fetchAllResources = async () => {
-  const { resources } = await resourceServiceClient.listResources({});
-  return resources;
-};
 
 function groupResourcesByDate(resources: Resource[]) {
   const grouped = new Map<number, Resource[]>();
@@ -32,15 +28,23 @@ function groupResourcesByDate(resources: Resource[]) {
   return grouped;
 }
 
+interface State {
+  searchQuery: string;
+}
+
 const Resources = () => {
   const t = useTranslate();
   const loadingState = useLoading();
+  const [state, setState] = useState<State>({
+    searchQuery: "",
+  });
   const [resources, setResources] = useState<Resource[]>([]);
-  const groupedResources = groupResourcesByDate(resources.filter((resoure) => resoure.memoId));
-  const unusedResources = resources.filter((resoure) => !resoure.memoId);
+  const filteredResources = resources.filter((resource) => includes(resource.filename, state.searchQuery));
+  const groupedResources = groupResourcesByDate(filteredResources.filter((resoure) => resoure.memoId));
+  const unusedResources = filteredResources.filter((resoure) => !resoure.memoId);
 
   useEffect(() => {
-    fetchAllResources().then((resources) => {
+    resourceServiceClient.listResources({}).then(({ resources }) => {
       setResources(resources);
       loadingState.setFinish();
     });
@@ -63,12 +67,22 @@ const Resources = () => {
 
   return (
     <section className="@container w-full max-w-3xl min-h-full flex flex-col justify-start items-center px-4 sm:px-2 sm:pt-4 pb-8 bg-zinc-100 dark:bg-zinc-800">
-      <MobileHeader showSearch={false} />
+      <MobileHeader />
       <div className="w-full shadow flex flex-col justify-start items-start px-4 py-3 rounded-xl bg-white dark:bg-zinc-700 text-black dark:text-gray-300">
         <div className="relative w-full flex flex-row justify-between items-center">
           <p className="px-2 py-1 flex flex-row justify-start items-center select-none opacity-80">
             <Icon.Paperclip className="w-5 h-auto mr-1" /> {t("common.resources")}
           </p>
+          <div>
+            <Input
+              className="max-w-[8rem]"
+              variant="plain"
+              placeholder={t("common.search")}
+              startDecorator={<Icon.Search className="w-4 h-auto" />}
+              value={state.searchQuery}
+              onChange={(e) => setState({ ...state, searchQuery: e.target.value })}
+            />
+          </div>
         </div>
         <div className="w-full flex flex-col justify-start items-start mt-4 mb-6">
           {loadingState.isLoading ? (
@@ -77,7 +91,7 @@ const Resources = () => {
             </div>
           ) : (
             <>
-              {resources.length === 0 ? (
+              {filteredResources.length === 0 ? (
                 <div className="w-full mt-8 mb-8 flex flex-col justify-center items-center italic">
                   <Empty />
                   <p className="mt-4 text-gray-600 dark:text-gray-400">{t("message.no-data")}</p>

@@ -19,8 +19,8 @@ import { getDateTimeString } from "@/helpers/datetime";
 import useCurrentUser from "@/hooks/useCurrentUser";
 import useNavigateTo from "@/hooks/useNavigateTo";
 import { useGlobalStore, useMemoStore } from "@/store/module";
-import { useUserV1Store } from "@/store/v1";
-import { User } from "@/types/proto/api/v2/user_service";
+import { useUserV1Store, extractUsernameFromName } from "@/store/v1";
+import { User, User_Role } from "@/types/proto/api/v2/user_service";
 import { useTranslate } from "@/utils/i18n";
 
 const MemoDetail = () => {
@@ -35,7 +35,7 @@ const MemoDetail = () => {
   const { systemStatus } = globalStore.state;
   const memoId = Number(params.memoId);
   const memo = memoStore.state.memos.find((memo) => memo.id === memoId);
-  const allowEdit = memo?.creatorUsername === currentUser?.username;
+  const allowEdit = memo?.creatorUsername === extractUsernameFromName(currentUser?.name);
   const referenceRelations = memo?.relationList.filter((relation) => relation.type === "REFERENCE") || [];
   const commentRelations = memo?.relationList.filter((relation) => relation.relatedMemoId === memo.id && relation.type === "COMMENT") || [];
   const comments = commentRelations
@@ -100,12 +100,21 @@ const MemoDetail = () => {
     await memoStore.fetchMemoById(memoId);
   };
 
+  const disableOption = (v: string) => {
+    const isAdminOrHost = currentUser.role === User_Role.ADMIN || currentUser.role === User_Role.HOST;
+
+    if (v === "PUBLIC" && !isAdminOrHost) {
+      return systemStatus.disablePublicMemos;
+    }
+    return false;
+  };
+
   return (
     <>
       <section className="relative top-0 w-full min-h-full overflow-x-hidden bg-zinc-100 dark:bg-zinc-900">
         <div className="relative w-full h-auto mx-auto flex flex-col justify-start items-center bg-white dark:bg-zinc-700">
           <div className="w-full flex flex-col justify-start items-center pt-16 pb-8">
-            <UserAvatar className="!w-20 h-auto mb-2 drop-shadow" avatarUrl={systemStatus.customizedProfile.logoUrl} />
+            <UserAvatar className="!w-20 h-20 mb-2 drop-shadow" avatarUrl={systemStatus.customizedProfile.logoUrl} />
             <p className="text-3xl text-black opacity-80 dark:text-gray-200">{systemStatus.customizedProfile.name}</p>
           </div>
           <div className="relative flex-grow max-w-2xl w-full min-h-full flex flex-col justify-start items-start px-4 pb-6">
@@ -136,7 +145,7 @@ const MemoDetail = () => {
                 <Link to={`/u/${encodeURIComponent(memo.creatorUsername)}`}>
                   <Tooltip title={"Creator"} placement="top">
                     <span className="flex flex-row justify-start items-center">
-                      <UserAvatar className="!w-5 !h-auto mr-1" avatarUrl={creator?.avatarUrl} />
+                      <UserAvatar className="!w-5 !h-5 mr-1" avatarUrl={creator?.avatarUrl} />
                       <span className="text-sm text-gray-600 max-w-[8em] truncate dark:text-gray-400">{creator?.nickname}</span>
                     </span>
                   </Tooltip>
@@ -156,7 +165,7 @@ const MemoDetail = () => {
                       }}
                     >
                       {VISIBILITY_SELECTOR_ITEMS.map((item) => (
-                        <Option key={item} value={item} className="whitespace-nowrap">
+                        <Option key={item} value={item} className="whitespace-nowrap" disabled={disableOption(item)}>
                           {t(`memo.visibility.${item.toLowerCase() as Lowercase<typeof item>}`)}
                         </Option>
                       ))}

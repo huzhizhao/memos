@@ -45,6 +45,7 @@
     "fold": "Recolher",
     "home": "Início",
     "image": "Imagem",
+    "inbox": "Caixa de Entrada",
     "language": "Idioma",
     "learn-more": "Saiba mais",
     "link": "Link",
@@ -119,6 +120,10 @@
     "memo-on": "{{amount}} memo em {{date}}",
     "memos-in": "memos em {{period}}",
     "memos-on": "{{amount}} memos em {{date}}"
+  },
+  "inbox": {
+    "memo-comment": "{{user}} tem um comentário sobre o seu {{memo}}.",
+    "version-update": "A nova versão {{version}} já está disponível!"
   },
   "memo": {
     "archived-at": "Arquivado em",
@@ -313,7 +318,7 @@
       "s3-compatible-url": "URL compatível com S3",
       "secretkey": "Chave secreta",
       "secretkey-placeholder": "Chave secreta / Chave de acesso",
-      "storage-services-list": "Lista de serviços de armazenamento",
+      "storage-services": "Lista de serviços de armazenamento",
       "type-database": "Banco de dados",
       "type-local": "Sistema de arquivos local",
       "update-a-service": "Atualizar um serviço",
@@ -351,7 +356,6 @@
       "display-with-updated-time": "Exibir hora de atualização nos memos",
       "enable-password-login": "Habilitar login com senha",
       "enable-password-login-warning": "Isso permitirá o login com senha para todos os usuários. Continue apenas se desejar que os usuários possam fazer login usando SSO e senha local❗",
-      "ignore-version-upgrade": "Ignorar atualização de versão",
       "max-upload-size": "Tamanho máximo de upload (MiB)",
       "max-upload-size-hint": "O valor recomendado é 32 MiB.",
       "server-name": "Nome do servidor",

@@ -1,6 +1,7 @@
 import { Button, Divider, Input, Switch, Textarea, Tooltip } from "@mui/joy";
 import { useEffect, useState } from "react";
 import { toast } from "react-hot-toast";
+import { Link } from "react-router-dom";
 import * as api from "@/helpers/api";
 import { formatBytes } from "@/helpers/utils";
 import { useGlobalStore } from "@/store/module";
@@ -324,7 +325,9 @@ const SystemSection = () => {
             />
           </div>
         </div>
-        <Button onClick={handleSaveTelegramBotToken}>{t("common.save")}</Button>
+        <Button variant="outlined" color="neutral" onClick={handleSaveTelegramBotToken}>
+          {t("common.save")}
+        </Button>
       </div>
       <Input
         className="w-full"
@@ -339,7 +342,9 @@ const SystemSection = () => {
       <Divider className="!mt-3 !my-4" />
       <div className="form-label">
         <span className="normal-text">{t("setting.system-section.additional-style")}</span>
-        <Button onClick={handleSaveAdditionalStyle}>{t("common.save")}</Button>
+        <Button variant="outlined" color="neutral" onClick={handleSaveAdditionalStyle}>
+          {t("common.save")}
+        </Button>
       </div>
       <Textarea
         className="w-full"
@@ -355,7 +360,9 @@ const SystemSection = () => {
       />
       <div className="form-label mt-2">
         <span className="normal-text">{t("setting.system-section.additional-script")}</span>
-        <Button onClick={handleSaveAdditionalScript}>{t("common.save")}</Button>
+        <Button variant="outlined" color="neutral" onClick={handleSaveAdditionalScript}>
+          {t("common.save")}
+        </Button>
       </div>
       <Textarea
         className="w-full"
@@ -370,6 +377,16 @@ const SystemSection = () => {
         value={state.additionalScript}
         onChange={(event) => handleAdditionalScriptChanged(event.target.value)}
       />
+      <div className="w-full">
+        <Link
+          className="text-gray-500 text-sm flex flex-row justify-start items-center mt-2 hover:underline hover:text-blue-600"
+          to="https://usememos.com/docs/advanced-settings/custom-style-and-script"
+          target="_blank"
+        >
+          {t("common.learn-more")}
+          <Icon.ExternalLink className="inline w-4 h-auto ml-1" />
+        </Link>
+      </div>
     </div>
   );
 };

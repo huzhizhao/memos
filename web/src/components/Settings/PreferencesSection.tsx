@@ -8,6 +8,7 @@ import AppearanceSelect from "../AppearanceSelect";
 import LearnMore from "../LearnMore";
 import LocaleSelect from "../LocaleSelect";
 import VisibilityIcon from "../VisibilityIcon";
+import WebhookSection from "./WebhookSection";
 import "@/less/settings/preferences-section.less";
 
 const PreferencesSection = () => {
@@ -17,8 +18,6 @@ const PreferencesSection = () => {
   const { appearance, locale } = globalStore.state;
   const { setting, localSetting } = userStore.state.user as User;
   const [telegramUserId, setTelegramUserId] = useState<string>(setting.telegramUserId);
-
-  const dailyReviewTimeOffsetOptions: number[] = [...Array(24).keys()];
 
   const handleLocaleSelectChange = async (locale: Locale) => {
     await userStore.upsertUserSetting("locale", locale);
@@ -36,10 +35,6 @@ const PreferencesSection = () => {
 
   const handleDoubleClickEnabledChanged = (event: React.ChangeEvent<HTMLInputElement>) => {
     userStore.upsertLocalSetting({ ...localSetting, enableDoubleClickEditing: event.target.checked });
-  };
-
-  const handleDailyReviewTimeOffsetChanged = (value: number) => {
-    userStore.upsertLocalSetting({ ...localSetting, dailyReviewTimeOffset: value });
   };
 
   const handleSaveTelegramUserId = async () => {
@@ -87,35 +82,6 @@ const PreferencesSection = () => {
           ))}
         </Select>
       </div>
-      <div className="form-label selector">
-        <span className="text-sm break-keep text-ellipsis overflow-hidden">{t("setting.preference-section.daily-review-time-offset")}</span>
-        <span className="w-auto inline-flex">
-          <Select
-            placeholder="hh"
-            className="!min-w-fit"
-            value={localSetting.dailyReviewTimeOffset}
-            onChange={(_, value) => {
-              if (value !== null) {
-                handleDailyReviewTimeOffsetChanged(value);
-              }
-            }}
-            slotProps={{
-              listbox: {
-                sx: {
-                  maxHeight: "15rem",
-                  overflow: "auto",
-                },
-              },
-            }}
-          >
-            {dailyReviewTimeOffsetOptions.map((item) => (
-              <Option key={item} value={item} className="whitespace-nowrap">
-                {item.toString().padStart(2, "0")}
-              </Option>
-            ))}
-          </Select>
-        </span>
-      </div>
 
       <label className="form-label selector">
         <span className="text-sm break-keep">{t("setting.preference-section.enable-double-click")}</span>
@@ -129,7 +95,9 @@ const PreferencesSection = () => {
           <span className="text-sm mr-1">{t("setting.preference-section.telegram-user-id")}</span>
           <LearnMore url="https://usememos.com/docs/integration/telegram-bot" />
         </div>
-        <Button onClick={handleSaveTelegramUserId}>{t("common.save")}</Button>
+        <Button variant="outlined" color="neutral" onClick={handleSaveTelegramUserId}>
+          {t("common.save")}
+        </Button>
       </div>
       <Input
         className="w-full"
@@ -141,6 +109,10 @@ const PreferencesSection = () => {
         onChange={(event) => handleTelegramUserIdChanged(event.target.value)}
         placeholder={t("setting.preference-section.telegram-user-id-placeholder")}
       />
+
+      <Divider className="!my-4" />
+
+      <WebhookSection />
     </div>
   );
 };

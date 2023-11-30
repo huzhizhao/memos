@@ -15,6 +15,7 @@ const EmbedMemo = lazy(() => import("@/pages/EmbedMemo"));
 const Archived = lazy(() => import("@/pages/Archived"));
 const DailyReview = lazy(() => import("@/pages/DailyReview"));
 const Resources = lazy(() => import("@/pages/Resources"));
+const Inboxes = lazy(() => import("@/pages/Inboxes"));
 const Setting = lazy(() => import("@/pages/Setting"));
 const NotFound = lazy(() => import("@/pages/NotFound"));
 
@@ -22,7 +23,7 @@ const initialGlobalStateLoader = async () => {
   try {
     await initialGlobalState();
   } catch (error) {
-    // do nth
+    // do nothing.
   }
   return null;
 };
@@ -69,11 +70,6 @@ const router = createBrowserRouter([
             loader: () => initialUserStateLoader(),
           },
           {
-            path: "explore",
-            element: <Explore />,
-            loader: () => initialUserStateLoader(false),
-          },
-          {
             path: "review",
             element: <DailyReview />,
             loader: () => initialUserStateLoader(),
@@ -81,6 +77,11 @@ const router = createBrowserRouter([
           {
             path: "resources",
             element: <Resources />,
+            loader: () => initialUserStateLoader(),
+          },
+          {
+            path: "inbox",
+            element: <Inboxes />,
             loader: () => initialUserStateLoader(),
           },
           {
@@ -92,6 +93,11 @@ const router = createBrowserRouter([
             path: "setting",
             element: <Setting />,
             loader: () => initialUserStateLoader(),
+          },
+          {
+            path: "explore",
+            element: <Explore />,
+            loader: () => initialUserStateLoader(false),
           },
         ],
       },

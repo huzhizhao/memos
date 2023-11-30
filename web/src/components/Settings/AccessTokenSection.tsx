@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { toast } from "react-hot-toast";
 import { userServiceClient } from "@/grpcweb";
 import useCurrentUser from "@/hooks/useCurrentUser";
+import { UserNamePrefix, extractUsernameFromName } from "@/store/v1";
 import { UserAccessToken } from "@/types/proto/api/v2/user_service";
 import { useTranslate } from "@/utils/i18n";
 import showCreateAccessTokenDialog from "../CreateAccessTokenDialog";
@@ -12,7 +13,7 @@ import Icon from "../Icon";
 import LearnMore from "../LearnMore";
 
 const listAccessTokens = async (username: string) => {
-  const { accessTokens } = await userServiceClient.listUserAccessTokens({ username: username });
+  const { accessTokens } = await userServiceClient.listUserAccessTokens({ name: `${UserNamePrefix}${username}` });
   return accessTokens;
 };
 
@@ -22,13 +23,13 @@ const AccessTokenSection = () => {
   const [userAccessTokens, setUserAccessTokens] = useState<UserAccessToken[]>([]);
 
   useEffect(() => {
-    listAccessTokens(currentUser.username).then((accessTokens) => {
+    listAccessTokens(extractUsernameFromName(currentUser.name)).then((accessTokens) => {
       setUserAccessTokens(accessTokens);
     });
   }, []);
 
   const handleCreateAccessTokenDialogConfirm = async () => {
-    const accessTokens = await listAccessTokens(currentUser.username);
+    const accessTokens = await listAccessTokens(extractUsernameFromName(currentUser.name));
     setUserAccessTokens(accessTokens);
   };
 
@@ -44,7 +45,7 @@ const AccessTokenSection = () => {
       style: "danger",
       dialogName: "delete-access-token-dialog",
       onConfirm: async () => {
-        await userServiceClient.deleteUserAccessToken({ username: currentUser.username, accessToken: accessToken });
+        await userServiceClient.deleteUserAccessToken({ name: currentUser.name, accessToken: accessToken });
         setUserAccessTokens(userAccessTokens.filter((token) => token.accessToken !== accessToken));
       },
     });
@@ -62,7 +63,7 @@ const AccessTokenSection = () => {
             <div className="sm:flex-auto space-y-1">
               <p className="flex flex-row justify-start items-center font-medium text-gray-700 dark:text-gray-300">
                 Access Tokens
-                <LearnMore className="ml-2" url="https://usememos.com/docs/access-tokens" />
+                <LearnMore className="ml-2" url="https://usememos.com/docs/security/access-tokens" />
               </p>
               <p className="text-sm text-gray-700 dark:text-gray-400">A list of all access tokens for your account.</p>
             </div>

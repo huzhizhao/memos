@@ -12,8 +12,10 @@ import (
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 
-	"github.com/usememos/memos/common/log"
-	"github.com/usememos/memos/common/util"
+	"github.com/usememos/memos/internal/log"
+	"github.com/usememos/memos/internal/util"
+	"github.com/usememos/memos/plugin/webhook"
+	storepb "github.com/usememos/memos/proto/gen/store"
 	"github.com/usememos/memos/server/service/metric"
 	"github.com/usememos/memos/store"
 )
@@ -146,47 +148,48 @@ func (s *APIV1Service) registerMemoRoutes(g *echo.Group) {
 func (s *APIV1Service) GetMemoList(c echo.Context) error {
 	ctx := c.Request().Context()
 	hasParentFlag := false
-	findMemoMessage := &store.FindMemo{
-		HasParent: &hasParentFlag,
+	find := &store.FindMemo{
+		HasParent:     &hasParentFlag,
+		OrderByPinned: true,
 	}
 	if userID, err := util.ConvertStringToInt32(c.QueryParam("creatorId")); err == nil {
-		findMemoMessage.CreatorID = &userID
+		find.CreatorID = &userID
 	}
 
 	if username := c.QueryParam("creatorUsername"); username != "" {
 		user, _ := s.Store.GetUser(ctx, &store.FindUser{Username: &username})
 		if user != nil {
-			findMemoMessage.CreatorID = &user.ID
+			find.CreatorID = &user.ID
 		}
 	}
 
 	currentUserID, ok := c.Get(userIDContextKey).(int32)
 	if !ok {
 		// Anonymous use should only fetch PUBLIC memos with specified user
-		if findMemoMessage.CreatorID == nil {
+		if find.CreatorID == nil {
 			return echo.NewHTTPError(http.StatusBadRequest, "Missing user to find memo")
 		}
-		findMemoMessage.VisibilityList = []store.Visibility{store.Public}
+		find.VisibilityList = []store.Visibility{store.Public}
 	} else {
 		// Authorized user can fetch all PUBLIC/PROTECTED memo
 		visibilityList := []store.Visibility{store.Public, store.Protected}
 
 		// If Creator is authorized user (as default), PRIVATE memo is OK
-		if findMemoMessage.CreatorID == nil || *findMemoMessage.CreatorID == currentUserID {
-			findMemoMessage.CreatorID = &currentUserID
+		if find.CreatorID == nil || *find.CreatorID == currentUserID {
+			find.CreatorID = &currentUserID
 			visibilityList = append(visibilityList, store.Private)
 		}
-		findMemoMessage.VisibilityList = visibilityList
+		find.VisibilityList = visibilityList
 	}
 
 	rowStatus := store.RowStatus(c.QueryParam("rowStatus"))
 	if rowStatus != "" {
-		findMemoMessage.RowStatus = &rowStatus
+		find.RowStatus = &rowStatus
 	}
 	pinnedStr := c.QueryParam("pinned")
 	if pinnedStr != "" {
 		pinned := pinnedStr == "true"
-		findMemoMessage.Pinned = &pinned
+		find.Pinned = &pinned
 	}
 
 	contentSearch := []string{}
@@ -198,13 +201,13 @@ func (s *APIV1Service) GetMemoList(c echo.Context) error {
 	if content != "" {
 		contentSearch = append(contentSearch, content)
 	}
-	findMemoMessage.ContentSearch = contentSearch
+	find.ContentSearch = contentSearch
 
 	if limit, err := strconv.Atoi(c.QueryParam("limit")); err == nil {
-		findMemoMessage.Limit = &limit
+		find.Limit = &limit
 	}
 	if offset, err := strconv.Atoi(c.QueryParam("offset")); err == nil {
-		findMemoMessage.Offset = &offset
+		find.Offset = &offset
 	}
 
 	memoDisplayWithUpdatedTs, err := s.getMemoDisplayWithUpdatedTsSettingValue(ctx)
@@ -212,10 +215,10 @@ func (s *APIV1Service) GetMemoList(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to get memo display with updated ts setting value").SetInternal(err)
 	}
 	if memoDisplayWithUpdatedTs {
-		findMemoMessage.OrderByUpdatedTs = true
+		find.OrderByUpdatedTs = true
 	}
 
-	list, err := s.Store.ListMemos(ctx, findMemoMessage)
+	list, err := s.Store.ListMemos(ctx, find)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to fetch memo list").SetInternal(err)
 	}
@@ -319,9 +322,6 @@ func (s *APIV1Service) CreateMemo(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to create memo").SetInternal(err)
 	}
-	if err := s.createMemoCreateActivity(ctx, memo); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to create activity").SetInternal(err)
-	}
 
 	for _, resourceID := range createMemoRequest.ResourceIDList {
 		if _, err := s.Store.UpdateResource(ctx, &store.UpdateResource{
@@ -340,6 +340,42 @@ func (s *APIV1Service) CreateMemo(c echo.Context) error {
 		}); err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, "Failed to upsert memo relation").SetInternal(err)
 		}
+		if memo.Visibility != store.Private && memoRelationUpsert.Type == MemoRelationComment {
+			relatedMemo, err := s.Store.GetMemo(ctx, &store.FindMemo{
+				ID: &memoRelationUpsert.RelatedMemoID,
+			})
+			if err != nil {
+				return echo.NewHTTPError(http.StatusInternalServerError, "Failed to get related memo").SetInternal(err)
+			}
+			if relatedMemo.CreatorID != memo.CreatorID {
+				activity, err := s.Store.CreateActivity(ctx, &store.Activity{
+					CreatorID: memo.CreatorID,
+					Type:      store.ActivityTypeMemoComment,
+					Level:     store.ActivityLevelInfo,
+					Payload: &storepb.ActivityPayload{
+						MemoComment: &storepb.ActivityMemoCommentPayload{
+							MemoId:        memo.ID,
+							RelatedMemoId: memoRelationUpsert.RelatedMemoID,
+						},
+					},
+				})
+				if err != nil {
+					return echo.NewHTTPError(http.StatusInternalServerError, "Failed to create activity").SetInternal(err)
+				}
+				metric.Enqueue("memo comment create")
+				if _, err := s.Store.CreateInbox(ctx, &store.Inbox{
+					SenderID:   memo.CreatorID,
+					ReceiverID: relatedMemo.CreatorID,
+					Status:     store.UNREAD,
+					Message: &storepb.InboxMessage{
+						Type:       storepb.InboxMessage_TYPE_MEMO_COMMENT,
+						ActivityId: &activity.ID,
+					},
+				}); err != nil {
+					return echo.NewHTTPError(http.StatusInternalServerError, "Failed to create inbox").SetInternal(err)
+				}
+			}
+		}
 	}
 
 	composedMemo, err := s.Store.GetMemo(ctx, &store.FindMemo{
@@ -357,7 +393,7 @@ func (s *APIV1Service) CreateMemo(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to compose memo response").SetInternal(err)
 	}
 
-	// send notification by telegram bot if memo is not Private
+	// Send notification to telegram if memo is not private.
 	if memoResponse.Visibility != Private {
 		// fetch all telegram UserID
 		userSettings, err := s.Store.ListUserSettings(ctx, &store.FindUserSetting{Key: UserSettingTelegramUserIDKey.String()})
@@ -388,6 +424,11 @@ func (s *APIV1Service) CreateMemo(c echo.Context) error {
 			}
 		}
 	}
+	// Try to dispatch webhook when memo is created.
+	if err := s.DispatchMemoCreatedWebhook(ctx, memoResponse); err != nil {
+		log.Warn("Failed to dispatch memo created webhook", zap.Error(err))
+	}
+
 	metric.Enqueue("memo create")
 	return c.JSON(http.StatusOK, memoResponse)
 }
@@ -566,9 +607,6 @@ func (s *APIV1Service) GetMemo(c echo.Context) error {
 		if !ok {
 			return echo.NewHTTPError(http.StatusForbidden, "this memo is protected, missing user in session")
 		}
-	}
-	if err := s.createMemoViewActivity(c, memo, userID); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to create activity").SetInternal(err)
 	}
 	memoResponse, err := s.convertMemoFromStore(ctx, memo)
 	if err != nil {
@@ -763,48 +801,12 @@ func (s *APIV1Service) UpdateMemo(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to compose memo response").SetInternal(err)
 	}
+	// Try to dispatch webhook when memo is updated.
+	if err := s.DispatchMemoUpdatedWebhook(ctx, memoResponse); err != nil {
+		log.Warn("Failed to dispatch memo updated webhook", zap.Error(err))
+	}
+
 	return c.JSON(http.StatusOK, memoResponse)
-}
-
-func (s *APIV1Service) createMemoCreateActivity(ctx context.Context, memo *store.Memo) error {
-	payload := ActivityMemoCreatePayload{
-		MemoID: memo.ID,
-	}
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		return errors.Wrap(err, "failed to marshal activity payload")
-	}
-	activity, err := s.Store.CreateActivity(ctx, &store.Activity{
-		CreatorID: memo.CreatorID,
-		Type:      ActivityMemoCreate.String(),
-		Level:     ActivityInfo.String(),
-		Payload:   string(payloadBytes),
-	})
-	if err != nil || activity == nil {
-		return errors.Wrap(err, "failed to create activity")
-	}
-	return err
-}
-
-func (s *APIV1Service) createMemoViewActivity(c echo.Context, memo *store.Memo, userID int32) error {
-	ctx := c.Request().Context()
-	payload := ActivityMemoViewPayload{
-		MemoID: memo.ID,
-	}
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		return errors.Wrap(err, "failed to marshal activity payload")
-	}
-	activity, err := s.Store.CreateActivity(ctx, &store.Activity{
-		CreatorID: userID,
-		Type:      string(ActivityMemoView),
-		Level:     string(ActivityInfo),
-		Payload:   string(payloadBytes),
-	})
-	if err != nil || activity == nil {
-		return errors.Wrap(err, "failed to create activity")
-	}
-	return err
 }
 
 func (s *APIV1Service) convertMemoFromStore(ctx context.Context, memo *store.Memo) (*Memo, error) {
@@ -954,4 +956,78 @@ func getIDListDiff(oldList, newList []int32) (addedList, removedList []int32) {
 		}
 	}
 	return addedList, removedList
+}
+
+// DispatchMemoCreatedWebhook dispatches webhook when memo is created.
+func (s *APIV1Service) DispatchMemoCreatedWebhook(ctx context.Context, memo *Memo) error {
+	return s.dispatchMemoRelatedWebhook(ctx, memo, "memos.memo.created")
+}
+
+// DispatchMemoUpdatedWebhook dispatches webhook when memo is updated.
+func (s *APIV1Service) DispatchMemoUpdatedWebhook(ctx context.Context, memo *Memo) error {
+	return s.dispatchMemoRelatedWebhook(ctx, memo, "memos.memo.updated")
+}
+
+func (s *APIV1Service) dispatchMemoRelatedWebhook(ctx context.Context, memo *Memo, activityType string) error {
+	webhooks, err := s.Store.ListWebhooks(ctx, &store.FindWebhook{
+		CreatorID: &memo.CreatorID,
+	})
+	if err != nil {
+		return err
+	}
+	metric.Enqueue("webhook dispatch")
+	for _, hook := range webhooks {
+		payload := convertMemoToWebhookPayload(memo)
+		payload.ActivityType = activityType
+		payload.URL = hook.Url
+		err := webhook.Post(*payload)
+		if err != nil {
+			return errors.Wrap(err, "failed to post webhook")
+		}
+	}
+	return nil
+}
+
+func convertMemoToWebhookPayload(memo *Memo) *webhook.WebhookPayload {
+	return &webhook.WebhookPayload{
+		CreatorID: memo.CreatorID,
+		CreatedTs: time.Now().Unix(),
+		Memo: &webhook.Memo{
+			ID:         memo.ID,
+			CreatorID:  memo.CreatorID,
+			CreatedTs:  memo.CreatedTs,
+			UpdatedTs:  memo.UpdatedTs,
+			Content:    memo.Content,
+			Visibility: memo.Visibility.String(),
+			Pinned:     memo.Pinned,
+			ResourceList: func() []*webhook.Resource {
+				resources := []*webhook.Resource{}
+				for _, resource := range memo.ResourceList {
+					resources = append(resources, &webhook.Resource{
+						ID:           resource.ID,
+						CreatorID:    resource.CreatorID,
+						CreatedTs:    resource.CreatedTs,
+						UpdatedTs:    resource.UpdatedTs,
+						Filename:     resource.Filename,
+						InternalPath: resource.InternalPath,
+						ExternalLink: resource.ExternalLink,
+						Type:         resource.Type,
+						Size:         resource.Size,
+					})
+				}
+				return resources
+			}(),
+			RelationList: func() []*webhook.MemoRelation {
+				relations := []*webhook.MemoRelation{}
+				for _, relation := range memo.RelationList {
+					relations = append(relations, &webhook.MemoRelation{
+						MemoID:        relation.MemoID,
+						RelatedMemoID: relation.RelatedMemoID,
+						Type:          relation.Type.String(),
+					})
+				}
+				return relations
+			}(),
+		},
+	}
 }

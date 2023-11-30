@@ -4,7 +4,18 @@
 ## Table of Contents
 
 - [store/activity.proto](#store_activity-proto)
+    - [ActivityMemoCommentPayload](#memos-store-ActivityMemoCommentPayload)
+    - [ActivityPayload](#memos-store-ActivityPayload)
+    - [ActivityVersionUpdatePayload](#memos-store-ActivityVersionUpdatePayload)
+  
 - [store/common.proto](#store_common-proto)
+    - [RowStatus](#memos-store-RowStatus)
+  
+- [store/inbox.proto](#store_inbox-proto)
+    - [InboxMessage](#memos-store-InboxMessage)
+  
+    - [InboxMessage.Type](#memos-store-InboxMessage-Type)
+  
 - [store/system_setting.proto](#store_system_setting-proto)
     - [BackupConfig](#memos-store-BackupConfig)
   
@@ -17,6 +28,9 @@
   
     - [UserSettingKey](#memos-store-UserSettingKey)
   
+- [store/webhook.proto](#store_webhook-proto)
+    - [Webhook](#memos-store-Webhook)
+  
 - [Scalar Value Types](#scalar-value-types)
 
 
@@ -25,6 +39,53 @@
 <p align="right"><a href="#top">Top</a></p>
 
 ## store/activity.proto
+
+
+
+<a name="memos-store-ActivityMemoCommentPayload"></a>
+
+### ActivityMemoCommentPayload
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| memo_id | [int32](#int32) |  |  |
+| related_memo_id | [int32](#int32) |  |  |
+
+
+
+
+
+
+<a name="memos-store-ActivityPayload"></a>
+
+### ActivityPayload
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| memo_comment | [ActivityMemoCommentPayload](#memos-store-ActivityMemoCommentPayload) |  |  |
+| version_update | [ActivityVersionUpdatePayload](#memos-store-ActivityVersionUpdatePayload) |  |  |
+
+
+
+
+
+
+<a name="memos-store-ActivityVersionUpdatePayload"></a>
+
+### ActivityVersionUpdatePayload
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| version | [string](#string) |  |  |
+
+
+
 
 
  
@@ -44,6 +105,64 @@
 
 
  
+
+
+<a name="memos-store-RowStatus"></a>
+
+### RowStatus
+
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| ROW_STATUS_UNSPECIFIED | 0 |  |
+| NORMAL | 1 |  |
+| ARCHIVED | 2 |  |
+
+
+ 
+
+ 
+
+ 
+
+
+
+<a name="store_inbox-proto"></a>
+<p align="right"><a href="#top">Top</a></p>
+
+## store/inbox.proto
+
+
+
+<a name="memos-store-InboxMessage"></a>
+
+### InboxMessage
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| type | [InboxMessage.Type](#memos-store-InboxMessage-Type) |  |  |
+| activity_id | [int32](#int32) | optional |  |
+
+
+
+
+
+ 
+
+
+<a name="memos-store-InboxMessage-Type"></a>
+
+### InboxMessage.Type
+
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| TYPE_UNSPECIFIED | 0 |  |
+| TYPE_MEMO_COMMENT | 1 |  |
+| TYPE_VERSION_UPDATE | 2 |  |
+
 
  
 
@@ -165,6 +284,43 @@
 | USER_SETTING_KEY_UNSPECIFIED | 0 |  |
 | USER_SETTING_ACCESS_TOKENS | 1 | Access tokens for the user. |
 
+
+ 
+
+ 
+
+ 
+
+
+
+<a name="store_webhook-proto"></a>
+<p align="right"><a href="#top">Top</a></p>
+
+## store/webhook.proto
+
+
+
+<a name="memos-store-Webhook"></a>
+
+### Webhook
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| id | [int32](#int32) |  |  |
+| created_ts | [int64](#int64) |  |  |
+| updated_ts | [int64](#int64) |  |  |
+| creator_id | [int32](#int32) |  |  |
+| row_status | [RowStatus](#memos-store-RowStatus) |  |  |
+| name | [string](#string) |  |  |
+| url | [string](#string) |  |  |
+
+
+
+
+
+ 
 
  
 

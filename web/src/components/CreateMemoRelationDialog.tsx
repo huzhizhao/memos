@@ -89,14 +89,14 @@ const CreateMemoRelationDialog: React.FC<Props> = (props: Props) => {
           onChange={handleMemoIdChanged}
           onKeyDown={handleMemoIdInputKeyDown}
           fullWidth
-          endDecorator={<Icon.PlusCircle onClick={handleSaveBtnClick} className="w-4 h-auto cursor-pointer hover:opacity-80" />}
+          endDecorator={<Icon.Check onClick={handleSaveBtnClick} className="w-4 h-auto cursor-pointer hover:opacity-80" />}
         />
         {memoList.length > 0 && (
           <>
             <div className="w-full flex flex-row justify-start items-start flex-wrap gap-2 mt-1">
               {memoList.map((memo) => (
                 <div
-                  className="max-w-[50%] text-sm px-3 py-1 flex flex-row justify-start items-center border rounded-full cursor-pointer truncate opacity-80 dark:text-gray-300 hover:opacity-60 hover:line-through"
+                  className="max-w-[50%] text-sm px-3 py-1 flex flex-row justify-start items-center border rounded-md cursor-pointer truncate opacity-80 dark:text-gray-300 hover:opacity-60 hover:line-through"
                   key={memo.id}
                   onClick={() => handleDeleteMemoRelation(memo)}
                 >

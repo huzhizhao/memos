@@ -61,7 +61,9 @@
     "beta": "Beta",
     "new": "New",
     "mark": "Mark",
-    "profile": "Profile"
+    "profile": "Profile",
+    "inbox": "Inbox",
+    "search": "Search"
   },
   "router": {
     "go-to-home": "Go to Home",
@@ -199,7 +201,7 @@
       "current-storage": "Current object storage",
       "type-database": "Database",
       "type-local": "Local file system",
-      "storage-services-list": "Storage service list",
+      "storage-services": "Storage services",
       "create-a-service": "Create a service",
       "update-a-service": "Update a service",
       "warning-text": "Are you sure to delete storage service \"{{name}}\"?\n\nTHIS ACTION IS IRREVERSIBLE",
@@ -251,7 +253,6 @@
       "disable-password-login-final-warning": "Please type \"CONFIRM\" if you know what you are doing.",
       "enable-password-login": "Enable password login",
       "enable-password-login-warning": "This will enable password login for all users. Continue only if you want to users to be able to log in using both SSO and password",
-      "ignore-version-upgrade": "Ignore version upgrade",
       "disable-public-memos": "Disable public memos",
       "max-upload-size": "Maximum upload size (MiB)",
       "max-upload-size-hint": "Recommended value is 32 MiB.",
@@ -368,5 +369,9 @@
     "file-exceeds-upload-limit-of": "File {{file}} exceeds upload limit of {{size}} MiB",
     "updating-setting-failed": "Updating setting failed",
     "password-login-disabled": "Can't remove last identity provider when password login is disabled"
+  },
+  "inbox": {
+    "memo-comment": "{{user}} has a comment on your {{memo}}.",
+    "version-update": "New version {{version}} is available now!"
   }
 }
