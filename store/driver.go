@@ -15,7 +15,6 @@ type Driver interface {
 
 	Migrate(ctx context.Context) error
 	Vacuum(ctx context.Context) error
-	BackupTo(ctx context.Context, filename string) error
 
 	// current file is driver
 	GetCurrentDBSize(ctx context.Context) (int64, error)
@@ -39,7 +38,6 @@ type Driver interface {
 	ListMemos(ctx context.Context, find *FindMemo) ([]*Memo, error)
 	UpdateMemo(ctx context.Context, update *UpdateMemo) error
 	DeleteMemo(ctx context.Context, delete *DeleteMemo) error
-	FindMemosVisibilityList(ctx context.Context, memoIDs []int32) ([]Visibility, error)
 
 	// MemoRelation model related methods.
 	UpsertMemoRelation(ctx context.Context, create *MemoRelation) (*MemoRelation, error)
@@ -62,10 +60,8 @@ type Driver interface {
 	DeleteUser(ctx context.Context, delete *DeleteUser) error
 
 	// UserSetting model related methods.
-	UpsertUserSetting(ctx context.Context, upsert *UserSetting) (*UserSetting, error)
-	ListUserSettings(ctx context.Context, find *FindUserSetting) ([]*UserSetting, error)
-	UpsertUserSettingV1(ctx context.Context, upsert *storepb.UserSetting) (*storepb.UserSetting, error)
-	ListUserSettingsV1(ctx context.Context, find *FindUserSettingV1) ([]*storepb.UserSetting, error)
+	UpsertUserSetting(ctx context.Context, upsert *storepb.UserSetting) (*storepb.UserSetting, error)
+	ListUserSettings(ctx context.Context, find *FindUserSetting) ([]*storepb.UserSetting, error)
 
 	// IdentityProvider model related methods.
 	CreateIdentityProvider(ctx context.Context, create *IdentityProvider) (*IdentityProvider, error)

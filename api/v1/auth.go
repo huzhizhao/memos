@@ -21,10 +21,6 @@ import (
 	"github.com/usememos/memos/store"
 )
 
-var (
-	usernameMatcher = regexp.MustCompile("^[a-z0-9]([a-z0-9-]{1,30}[a-z0-9])$")
-)
-
 type SignIn struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
@@ -293,7 +289,7 @@ func (s *APIV1Service) SignUp(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "Failed to find users").SetInternal(err)
 	}
-	if !usernameMatcher.MatchString(strings.ToLower(signup.Username)) {
+	if !util.ResourceNameMatcher.MatchString(strings.ToLower(signup.Username)) {
 		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid username %s", signup.Username)).SetInternal(err)
 	}
 
@@ -323,6 +319,23 @@ func (s *APIV1Service) SignUp(c echo.Context) error {
 		}
 		if !allowSignUpSettingValue {
 			return echo.NewHTTPError(http.StatusUnauthorized, "signup is disabled").SetInternal(err)
+		}
+
+		disablePasswordLoginSystemSetting, err := s.Store.GetSystemSetting(ctx, &store.FindSystemSetting{
+			Name: SystemSettingDisablePasswordLoginName.String(),
+		})
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, "Failed to find system setting").SetInternal(err)
+		}
+		if disablePasswordLoginSystemSetting != nil {
+			disablePasswordLogin := false
+			err = json.Unmarshal([]byte(disablePasswordLoginSystemSetting.Value), &disablePasswordLogin)
+			if err != nil {
+				return echo.NewHTTPError(http.StatusInternalServerError, "Failed to unmarshal system setting").SetInternal(err)
+			}
+			if disablePasswordLogin {
+				return echo.NewHTTPError(http.StatusUnauthorized, "password login is deactivated")
+			}
 		}
 	}
 
@@ -359,7 +372,7 @@ func (s *APIV1Service) UpsertAccessTokenToStore(ctx context.Context, user *store
 		Description: "Account sign in",
 	}
 	userAccessTokens = append(userAccessTokens, &userAccessToken)
-	if _, err := s.Store.UpsertUserSettingV1(ctx, &storepb.UserSetting{
+	if _, err := s.Store.UpsertUserSetting(ctx, &storepb.UserSetting{
 		UserId: user.ID,
 		Key:    storepb.UserSettingKey_USER_SETTING_ACCESS_TOKENS,
 		Value: &storepb.UserSetting_AccessTokens{
