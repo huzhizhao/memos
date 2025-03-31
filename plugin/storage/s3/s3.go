@@ -2,91 +2,91 @@ package s3
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"io"
-	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	s3config "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
-	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/pkg/errors"
+
+	storepb "github.com/usememos/memos/proto/gen/store"
 )
 
-type Config struct {
-	AccessKey string
-	SecretKey string
-	Bucket    string
-	EndPoint  string
-	Region    string
-	URLPrefix string
-	URLSuffix string
-}
-
 type Client struct {
-	Client *awss3.Client
-	Config *Config
+	Client *s3.Client
+	Bucket *string
 }
 
-func NewClient(ctx context.Context, config *Config) (*Client, error) {
-	// For some s3-compatible object stores, converting the hostname is not required,
-	// and not setting this option will result in not being able to access the corresponding object store address.
-	// But Aliyun OSS should disable this option
-	hostnameImmutable := true
-	if strings.HasSuffix(config.EndPoint, "aliyuncs.com") {
-		hostnameImmutable = false
-	}
-	resolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...any) (aws.Endpoint, error) {
-		return aws.Endpoint{
-			URL:               config.EndPoint,
-			SigningRegion:     config.Region,
-			HostnameImmutable: hostnameImmutable,
-		}, nil
-	})
-
-	awsConfig, err := s3config.LoadDefaultConfig(ctx,
-		s3config.WithEndpointResolverWithOptions(resolver),
-		s3config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(config.AccessKey, config.SecretKey, "")),
-		s3config.WithRegion(config.Region),
+func NewClient(ctx context.Context, s3Config *storepb.StorageS3Config) (*Client, error) {
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(s3Config.AccessKeyId, s3Config.AccessKeySecret, "")),
+		config.WithRegion(s3Config.Region),
 	)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "failed to load s3 config")
 	}
 
-	client := awss3.NewFromConfig(awsConfig)
-
+	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
+		o.BaseEndpoint = aws.String(s3Config.Endpoint)
+		o.UsePathStyle = s3Config.UsePathStyle
+		o.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
+		o.ResponseChecksumValidation = aws.ResponseChecksumValidationWhenRequired
+	})
 	return &Client{
 		Client: client,
-		Config: config,
+		Bucket: aws.String(s3Config.Bucket),
 	}, nil
 }
 
-func (client *Client) UploadFile(ctx context.Context, filename string, fileType string, src io.Reader) (string, error) {
-	uploader := manager.NewUploader(client.Client)
-	putInput := awss3.PutObjectInput{
-		Bucket:      aws.String(client.Config.Bucket),
-		Key:         aws.String(filename),
-		Body:        src,
+// UploadObject uploads an object to S3.
+func (c *Client) UploadObject(ctx context.Context, key string, fileType string, content io.Reader) (string, error) {
+	uploader := manager.NewUploader(c.Client)
+	putInput := s3.PutObjectInput{
+		Bucket:      c.Bucket,
+		Key:         aws.String(key),
 		ContentType: aws.String(fileType),
+		Body:        content,
 	}
-	// Set ACL according to if url prefix is set.
-	if client.Config.URLPrefix == "" {
-		putInput.ACL = types.ObjectCannedACL(*aws.String("public-read"))
-	}
-	uploadOutput, err := uploader.Upload(ctx, &putInput)
+	result, err := uploader.Upload(ctx, &putInput)
 	if err != nil {
 		return "", err
 	}
 
-	link := uploadOutput.Location
-	// If url prefix is set, use it as the file link.
-	if client.Config.URLPrefix != "" {
-		link = fmt.Sprintf("%s/%s%s", client.Config.URLPrefix, filename, client.Config.URLSuffix)
+	resultKey := result.Key
+	if resultKey == nil || *resultKey == "" {
+		return "", errors.New("failed to get file key")
 	}
-	if link == "" {
-		return "", errors.New("failed to get file link")
+	return *resultKey, nil
+}
+
+// PresignGetObject presigns an object in S3.
+func (c *Client) PresignGetObject(ctx context.Context, key string) (string, error) {
+	presignClient := s3.NewPresignClient(c.Client)
+	presignResult, err := presignClient.PresignGetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(*c.Bucket),
+		Key:    aws.String(key),
+	}, func(opts *s3.PresignOptions) {
+		// Set the expiration time of the presigned URL to 5 days.
+		// Reference: https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-query-string-auth.html
+		opts.Expires = time.Duration(5 * 24 * time.Hour)
+	})
+	if err != nil {
+		return "", errors.Wrap(err, "failed to presign put object")
 	}
-	return link, nil
+	return presignResult.URL, nil
+}
+
+// DeleteObject deletes an object in S3.
+func (c *Client) DeleteObject(ctx context.Context, key string) error {
+	_, err := c.Client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: c.Bucket,
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return errors.Wrap(err, "failed to delete object")
+	}
+	return nil
 }

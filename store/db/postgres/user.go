@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/usememos/memos/store"
@@ -10,10 +11,11 @@ import (
 func (d *DB) CreateUser(ctx context.Context, create *store.User) (*store.User, error) {
 	fields := []string{"username", "role", "email", "nickname", "password_hash", "avatar_url"}
 	args := []any{create.Username, create.Role, create.Email, create.Nickname, create.PasswordHash, create.AvatarURL}
-	stmt := "INSERT INTO \"user\" (" + strings.Join(fields, ", ") + ") VALUES (" + placeholders(len(args)) + ") RETURNING id, avatar_url, created_ts, updated_ts, row_status"
+	stmt := "INSERT INTO \"user\" (" + strings.Join(fields, ", ") + ") VALUES (" + placeholders(len(args)) + ") RETURNING id, avatar_url, description, created_ts, updated_ts, row_status"
 	if err := d.db.QueryRowContext(ctx, stmt, args...).Scan(
 		&create.ID,
 		&create.AvatarURL,
+		&create.Description,
 		&create.CreatedTs,
 		&create.UpdatedTs,
 		&create.RowStatus,
@@ -47,12 +49,15 @@ func (d *DB) UpdateUser(ctx context.Context, update *store.UpdateUser) (*store.U
 	if v := update.PasswordHash; v != nil {
 		set, args = append(set, "password_hash = "+placeholder(len(args)+1)), append(args, *v)
 	}
+	if v := update.Description; v != nil {
+		set, args = append(set, "description = "+placeholder(len(args)+1)), append(args, *v)
+	}
 
 	query := `
 		UPDATE "user"
 		SET ` + strings.Join(set, ", ") + `
 		WHERE id = ` + placeholder(len(args)+1) + `
-		RETURNING id, username, role, email, nickname, password_hash, avatar_url, created_ts, updated_ts, row_status
+		RETURNING id, username, role, email, nickname, password_hash, avatar_url, description, created_ts, updated_ts, row_status
 	`
 	args = append(args, update.ID)
 	user := &store.User{}
@@ -64,6 +69,7 @@ func (d *DB) UpdateUser(ctx context.Context, update *store.UpdateUser) (*store.U
 		&user.Nickname,
 		&user.PasswordHash,
 		&user.AvatarURL,
+		&user.Description,
 		&user.CreatedTs,
 		&user.UpdatedTs,
 		&user.RowStatus,
@@ -93,6 +99,7 @@ func (d *DB) ListUsers(ctx context.Context, find *store.FindUser) ([]*store.User
 		where, args = append(where, "nickname = "+placeholder(len(args)+1)), append(args, *v)
 	}
 
+	orderBy := []string{"created_ts DESC", "row_status DESC"}
 	query := `
 		SELECT 
 			id,
@@ -102,13 +109,15 @@ func (d *DB) ListUsers(ctx context.Context, find *store.FindUser) ([]*store.User
 			nickname,
 			password_hash,
 			avatar_url,
+			description,
 			created_ts,
 			updated_ts,
 			row_status
 		FROM "user"
-		WHERE ` + strings.Join(where, " AND ") + `
-		ORDER BY created_ts DESC, row_status DESC
-	`
+		WHERE ` + strings.Join(where, " AND ") + ` ORDER BY ` + strings.Join(orderBy, ", ")
+	if v := find.Limit; v != nil {
+		query += fmt.Sprintf(" LIMIT %d", *v)
+	}
 	rows, err := d.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -126,6 +135,7 @@ func (d *DB) ListUsers(ctx context.Context, find *store.FindUser) ([]*store.User
 			&user.Nickname,
 			&user.PasswordHash,
 			&user.AvatarURL,
+			&user.Description,
 			&user.CreatedTs,
 			&user.UpdatedTs,
 			&user.RowStatus,
@@ -143,20 +153,12 @@ func (d *DB) ListUsers(ctx context.Context, find *store.FindUser) ([]*store.User
 }
 
 func (d *DB) DeleteUser(ctx context.Context, delete *store.DeleteUser) error {
-	result, err := d.db.ExecContext(ctx, `
-		DELETE FROM "user" WHERE id = $1
-	`, delete.ID)
+	result, err := d.db.ExecContext(ctx, `DELETE FROM "user" WHERE id = $1`, delete.ID)
 	if err != nil {
 		return err
 	}
 	if _, err := result.RowsAffected(); err != nil {
 		return err
 	}
-
-	if err := d.Vacuum(ctx); err != nil {
-		// Prevent linter warning.
-		return err
-	}
-
 	return nil
 }

@@ -1,51 +1,65 @@
-import * as api from "@/helpers/api";
+import { Dropdown, Menu, MenuButton, MenuItem } from "@mui/joy";
+import { ArchiveIcon, LogOutIcon, User2Icon, SquareUserIcon } from "lucide-react";
+import { authServiceClient } from "@/grpcweb";
 import useCurrentUser from "@/hooks/useCurrentUser";
-import { useGlobalStore } from "@/store/module";
+import useNavigateTo from "@/hooks/useNavigateTo";
+import { Routes } from "@/router";
+import { cn } from "@/utils";
 import { useTranslate } from "@/utils/i18n";
-import Icon from "./Icon";
 import UserAvatar from "./UserAvatar";
-import Dropdown from "./kit/Dropdown";
 
-const UserBanner = () => {
+interface Props {
+  collapsed?: boolean;
+}
+
+const UserBanner = (props: Props) => {
+  const { collapsed } = props;
   const t = useTranslate();
-  const globalStore = useGlobalStore();
-  const { systemStatus } = globalStore.state;
-  const user = useCurrentUser();
-  const title = user ? user.nickname || user.username : systemStatus.customizedProfile.name || "memos";
-  const avatarUrl = user ? user.avatarUrl : systemStatus.customizedProfile.logoUrl;
+  const navigateTo = useNavigateTo();
+  const currentUser = useCurrentUser();
 
   const handleSignOut = async () => {
-    await api.signout();
-    window.location.href = "/auth";
+    await authServiceClient.signOut({});
+    window.location.href = Routes.AUTH;
   };
 
   return (
     <div className="relative w-full h-auto px-1 shrink-0">
-      <Dropdown
-        className="w-auto inline-flex"
-        trigger={
-          <div className="px-3 py-2 max-w-full flex flex-row justify-start items-center cursor-pointer rounded-2xl border border-transparent text-gray-800 dark:text-gray-300 hover:bg-white hover:border-gray-200 dark:hover:border-zinc-700 dark:hover:bg-zinc-800">
-            <UserAvatar className="shadow shrink-0 mr-2" avatarUrl={avatarUrl} />
-            <span className="text-lg font-medium text-slate-800 dark:text-gray-200 shrink truncate">{title}</span>
-          </div>
-        }
-        disabled={user == undefined}
-        actionsClassName="min-w-[128px] max-w-full"
-        positionClassName="top-full mt-2"
-        actions={
-          <>
-            {user != undefined && (
-              <button
-                className="w-full px-3 truncate text-left leading-10 cursor-pointer rounded flex flex-row justify-start items-center dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-zinc-800"
-                onClick={handleSignOut}
-              >
-                <Icon.LogOut className="w-5 h-auto mr-1 opacity-60 shrink-0" />
-                <span className="truncate">{t("common.sign-out")}</span>
-              </button>
+      <Dropdown>
+        <MenuButton disabled={!currentUser} slots={{ root: "div" }}>
+          <div
+            className={cn(
+              "w-auto flex flex-row justify-start items-center cursor-pointer text-gray-800 dark:text-gray-400",
+              collapsed ? "px-1" : "px-3",
             )}
-          </>
-        }
-      />
+          >
+            {currentUser.avatarUrl ? (
+              <UserAvatar className="shrink-0" avatarUrl={currentUser.avatarUrl} />
+            ) : (
+              <User2Icon className="w-6 mx-auto h-auto opacity-60" />
+            )}
+            {!collapsed && (
+              <span className="ml-2 text-lg font-medium text-slate-800 dark:text-gray-300 grow truncate">
+                {currentUser.nickname || currentUser.username}
+              </span>
+            )}
+          </div>
+        </MenuButton>
+        <Menu placement="bottom-start" style={{ zIndex: "9999" }}>
+          <MenuItem onClick={() => navigateTo(`/u/${encodeURIComponent(currentUser.username)}`)}>
+            <SquareUserIcon className="w-4 h-auto opacity-60" />
+            <span className="truncate">{t("common.profile")}</span>
+          </MenuItem>
+          <MenuItem onClick={() => navigateTo(Routes.ARCHIVED)}>
+            <ArchiveIcon className="w-4 h-auto opacity-60" />
+            <span className="truncate">{t("common.archived")}</span>
+          </MenuItem>
+          <MenuItem onClick={handleSignOut}>
+            <LogOutIcon className="w-4 h-auto opacity-60" />
+            <span className="truncate">{t("common.sign-out")}</span>
+          </MenuItem>
+        </Menu>
+      </Dropdown>
     </div>
   );
 };

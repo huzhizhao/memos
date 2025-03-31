@@ -1,12 +1,12 @@
-import classNames from "classnames";
 import { useEffect } from "react";
 import MemoResourceListView from "@/components/MemoResourceListView";
 import useLoading from "@/hooks/useLoading";
 import { useResourceStore } from "@/store/v1";
+import { cn } from "@/utils";
 import Error from "./Error";
 
 interface Props {
-  resourceId: number;
+  resourceId: string;
   params: string;
 }
 
@@ -35,25 +35,25 @@ const getAdditionalClassNameWithParams = (params: URLSearchParams) => {
   return additionalClassNames.join(" ");
 };
 
-const EmbeddedResource = ({ resourceId, params: paramsStr }: Props) => {
+const EmbeddedResource = ({ resourceId: uid, params: paramsStr }: Props) => {
   const loadingState = useLoading();
   const resourceStore = useResourceStore();
-  const resource = resourceStore.getResourceById(resourceId);
+  const resource = resourceStore.getResourceByName(uid);
   const params = new URLSearchParams(paramsStr);
 
   useEffect(() => {
-    resourceStore.getOrFetchResourceById(resourceId).finally(() => loadingState.setFinish());
-  }, [resourceId]);
+    resourceStore.fetchResourceByName(`resources/${uid}`).finally(() => loadingState.setFinish());
+  }, [uid]);
 
   if (loadingState.isLoading) {
     return null;
   }
   if (!resource) {
-    return <Error message={`Resource not found: ${resourceId}`} />;
+    return <Error message={`Resource not found: ${uid}`} />;
   }
 
   return (
-    <div className={classNames("max-w-full", getAdditionalClassNameWithParams(params))}>
+    <div className={cn("max-w-full", getAdditionalClassNameWithParams(params))}>
       <MemoResourceListView resources={[resource]} />
     </div>
   );

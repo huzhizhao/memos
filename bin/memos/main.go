@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -10,12 +11,10 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"go.uber.org/zap"
 
-	"github.com/usememos/memos/internal/log"
 	"github.com/usememos/memos/server"
-	_profile "github.com/usememos/memos/server/profile"
-	"github.com/usememos/memos/server/service/metric"
+	"github.com/usememos/memos/server/profile"
+	"github.com/usememos/memos/server/version"
 	"github.com/usememos/memos/store"
 	"github.com/usememos/memos/store/db"
 )
@@ -32,52 +31,44 @@ const (
 )
 
 var (
-	profile      *_profile.Profile
-	mode         string
-	addr         string
-	port         int
-	data         string
-	driver       string
-	dsn          string
-	enableMetric bool
-
 	rootCmd = &cobra.Command{
 		Use:   "memos",
-		Short: `An open-source, self-hosted memo hub with knowledge management and social networking.`,
-		Run: func(_cmd *cobra.Command, _args []string) {
+		Short: `An open source, lightweight note-taking service. Easily capture and share your great thoughts.`,
+		Run: func(_ *cobra.Command, _ []string) {
+			instanceProfile := &profile.Profile{
+				Mode:        viper.GetString("mode"),
+				Addr:        viper.GetString("addr"),
+				Port:        viper.GetInt("port"),
+				Data:        viper.GetString("data"),
+				Driver:      viper.GetString("driver"),
+				DSN:         viper.GetString("dsn"),
+				InstanceURL: viper.GetString("instance-url"),
+				Version:     version.GetCurrentVersion(viper.GetString("mode")),
+			}
+			if err := instanceProfile.Validate(); err != nil {
+				panic(err)
+			}
+
 			ctx, cancel := context.WithCancel(context.Background())
-			dbDriver, err := db.NewDBDriver(profile)
+			dbDriver, err := db.NewDBDriver(instanceProfile)
 			if err != nil {
 				cancel()
-				log.Error("failed to create db driver", zap.Error(err))
+				slog.Error("failed to create db driver", "error", err)
 				return
 			}
-			if err := dbDriver.Migrate(ctx); err != nil {
+
+			storeInstance := store.New(dbDriver, instanceProfile)
+			if err := storeInstance.Migrate(ctx); err != nil {
 				cancel()
-				log.Error("failed to migrate db", zap.Error(err))
+				slog.Error("failed to migrate", "error", err)
 				return
 			}
 
-			store := store.New(dbDriver, profile)
-
-			go func() {
-				if err := store.MigrateResourceInternalPath(ctx); err != nil {
-					cancel()
-					log.Error("failed to migrate resource internal path", zap.Error(err))
-					return
-				}
-			}()
-
-			s, err := server.NewServer(ctx, profile, store)
+			s, err := server.NewServer(ctx, instanceProfile, storeInstance)
 			if err != nil {
 				cancel()
-				log.Error("failed to create server", zap.Error(err))
+				slog.Error("failed to create server", "error", err)
 				return
-			}
-
-			if profile.Metric {
-				// nolint
-				metric.NewMetricClient(s.ID, *profile)
 			}
 
 			c := make(chan os.Signal, 1)
@@ -85,21 +76,21 @@ var (
 			// The default signal sent by the `kill` command is SIGTERM,
 			// which is taken as the graceful shutdown signal for many systems, eg., Kubernetes, Gunicorn.
 			signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-			go func() {
-				sig := <-c
-				log.Info(fmt.Sprintf("%s received.\n", sig.String()))
-				s.Shutdown(ctx)
-				cancel()
-			}()
-
-			printGreetings()
 
 			if err := s.Start(ctx); err != nil {
 				if err != http.ErrServerClosed {
-					log.Error("failed to start server", zap.Error(err))
+					slog.Error("failed to start server", "error", err)
 					cancel()
 				}
 			}
+
+			printGreetings(instanceProfile)
+
+			go func() {
+				<-c
+				s.Shutdown(ctx)
+				cancel()
+			}()
 
 			// Wait for CTRL-C.
 			<-ctx.Done()
@@ -107,98 +98,80 @@ var (
 	}
 )
 
-func Execute() error {
-	defer log.Sync()
-	return rootCmd.Execute()
-}
-
 func init() {
-	cobra.OnInitialize(initConfig)
-
-	rootCmd.PersistentFlags().StringVarP(&mode, "mode", "m", "demo", `mode of server, can be "prod" or "dev" or "demo"`)
-	rootCmd.PersistentFlags().StringVarP(&addr, "addr", "a", "", "address of server")
-	rootCmd.PersistentFlags().IntVarP(&port, "port", "p", 8081, "port of server")
-	rootCmd.PersistentFlags().StringVarP(&data, "data", "d", "", "data directory")
-	rootCmd.PersistentFlags().StringVarP(&driver, "driver", "", "", "database driver")
-	rootCmd.PersistentFlags().StringVarP(&dsn, "dsn", "", "", "database source name(aka. DSN)")
-	rootCmd.PersistentFlags().BoolVarP(&enableMetric, "metric", "", true, "allow metric collection")
-
-	err := viper.BindPFlag("mode", rootCmd.PersistentFlags().Lookup("mode"))
-	if err != nil {
-		panic(err)
-	}
-	err = viper.BindPFlag("addr", rootCmd.PersistentFlags().Lookup("addr"))
-	if err != nil {
-		panic(err)
-	}
-	err = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
-	if err != nil {
-		panic(err)
-	}
-	err = viper.BindPFlag("data", rootCmd.PersistentFlags().Lookup("data"))
-	if err != nil {
-		panic(err)
-	}
-	err = viper.BindPFlag("driver", rootCmd.PersistentFlags().Lookup("driver"))
-	if err != nil {
-		panic(err)
-	}
-	err = viper.BindPFlag("dsn", rootCmd.PersistentFlags().Lookup("dsn"))
-	if err != nil {
-		panic(err)
-	}
-	err = viper.BindPFlag("metric", rootCmd.PersistentFlags().Lookup("metric"))
-	if err != nil {
-		panic(err)
-	}
-
-	viper.SetDefault("mode", "demo")
+	viper.SetDefault("mode", "dev")
 	viper.SetDefault("driver", "sqlite")
-	viper.SetDefault("addr", "")
 	viper.SetDefault("port", 8081)
-	viper.SetDefault("metric", true)
-	viper.SetEnvPrefix("memos")
-}
 
-func initConfig() {
-	viper.AutomaticEnv()
-	var err error
-	profile, err = _profile.GetProfile()
-	if err != nil {
-		fmt.Printf("failed to get profile, error: %+v\n", err)
-		return
+	rootCmd.PersistentFlags().String("mode", "dev", `mode of server, can be "prod" or "dev" or "demo"`)
+	rootCmd.PersistentFlags().String("addr", "", "address of server")
+	rootCmd.PersistentFlags().Int("port", 8081, "port of server")
+	rootCmd.PersistentFlags().String("data", "", "data directory")
+	rootCmd.PersistentFlags().String("driver", "sqlite", "database driver")
+	rootCmd.PersistentFlags().String("dsn", "", "database source name(aka. DSN)")
+	rootCmd.PersistentFlags().String("instance-url", "", "the url of your memos instance")
+
+	if err := viper.BindPFlag("mode", rootCmd.PersistentFlags().Lookup("mode")); err != nil {
+		panic(err)
+	}
+	if err := viper.BindPFlag("addr", rootCmd.PersistentFlags().Lookup("addr")); err != nil {
+		panic(err)
+	}
+	if err := viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port")); err != nil {
+		panic(err)
+	}
+	if err := viper.BindPFlag("data", rootCmd.PersistentFlags().Lookup("data")); err != nil {
+		panic(err)
+	}
+	if err := viper.BindPFlag("driver", rootCmd.PersistentFlags().Lookup("driver")); err != nil {
+		panic(err)
+	}
+	if err := viper.BindPFlag("dsn", rootCmd.PersistentFlags().Lookup("dsn")); err != nil {
+		panic(err)
+	}
+	if err := viper.BindPFlag("instance-url", rootCmd.PersistentFlags().Lookup("instance-url")); err != nil {
+		panic(err)
 	}
 
-	println("---")
-	println("Server profile")
-	println("data:", profile.Data)
-	println("dsn:", profile.DSN)
-	println("addr:", profile.Addr)
-	println("port:", profile.Port)
-	println("mode:", profile.Mode)
-	println("driver:", profile.Driver)
-	println("version:", profile.Version)
-	println("metric:", profile.Metric)
-	println("---")
+	viper.SetEnvPrefix("memos")
+	viper.AutomaticEnv()
+	if err := viper.BindEnv("instance-url", "MEMOS_INSTANCE_URL"); err != nil {
+		panic(err)
+	}
 }
 
-func printGreetings() {
+func printGreetings(profile *profile.Profile) {
+	if profile.IsDev() {
+		println("Development mode is enabled")
+		println("DSN: ", profile.DSN)
+	}
+	fmt.Printf(`---
+Server profile
+version: %s
+data: %s
+addr: %s
+port: %d
+mode: %s
+driver: %s
+---
+`, profile.Version, profile.Data, profile.Addr, profile.Port, profile.Mode, profile.Driver)
+
 	print(greetingBanner)
 	if len(profile.Addr) == 0 {
 		fmt.Printf("Version %s has been started on port %d\n", profile.Version, profile.Port)
 	} else {
 		fmt.Printf("Version %s has been started on address '%s' and port %d\n", profile.Version, profile.Addr, profile.Port)
 	}
-	println("---")
-	println("See more in:")
-	fmt.Printf("👉Website: %s\n", "https://usememos.com")
-	fmt.Printf("👉GitHub: %s\n", "https://github.com/usememos/memos")
-	println("---")
+	fmt.Printf(`---
+See more in:
+👉Website: %s
+👉GitHub: %s
+---
+`, "https://usememos.com", "https://github.com/usememos/memos")
 }
 
 func main() {
-	err := Execute()
-	if err != nil {
+	if err := rootCmd.Execute(); err != nil {
 		panic(err)
 	}
 }

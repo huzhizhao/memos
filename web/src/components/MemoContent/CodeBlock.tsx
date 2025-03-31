@@ -1,10 +1,19 @@
-import { IconButton } from "@mui/joy";
-import classNames from "classnames";
 import copy from "copy-to-clipboard";
 import hljs from "highlight.js";
+import { CopyIcon } from "lucide-react";
+import { useCallback, useMemo } from "react";
 import toast from "react-hot-toast";
-import Icon from "../Icon";
+import { cn } from "@/utils";
+import MermaidBlock from "./MermaidBlock";
 import { BaseProps } from "./types";
+import "highlight.js/styles/atom-one-dark.css";
+import "highlight.js/styles/github.css";
+
+// Special languages that are rendered differently.
+enum SpecialLanguage {
+  HTML = "__html",
+  MERMAID = "mermaid",
+}
 
 interface Props extends BaseProps {
   language: string;
@@ -12,50 +21,61 @@ interface Props extends BaseProps {
 }
 
 const CodeBlock: React.FC<Props> = ({ language, content }: Props) => {
-  const formatedLanguage = language.toLowerCase() || "plaintext";
-  let highlightedCode = hljs.highlightAuto(content).value;
+  const formatedLanguage = useMemo(() => (language || "").toLowerCase() || "text", [language]);
 
-  // Users can set Markdown code blocks as 'iframe'
-  // to embed videos or external audio links from services like Apple Music or Spotify.
-  if (formatedLanguage === "iframe") {
-    const renderHTML = () => {
-      return { __html: content };
-    };
-
-    return <div className="mx-auto w-11/12 !my-4" dangerouslySetInnerHTML={renderHTML()} />;
+  // Users can set Markdown code blocks as `__html` to render HTML directly.
+  if (formatedLanguage === SpecialLanguage.HTML) {
+    return (
+      <div
+        className="w-full overflow-auto !my-2"
+        dangerouslySetInnerHTML={{
+          __html: content,
+        }}
+      />
+    );
+  } else if (formatedLanguage === SpecialLanguage.MERMAID) {
+    return <MermaidBlock content={content} />;
   }
 
-  try {
-    const temp = hljs.highlight(content, {
-      language: formatedLanguage,
-    }).value;
-    highlightedCode = temp;
-  } catch (error) {
-    // Skip error and use default highlighted code.
-  }
+  const highlightedCode = useMemo(() => {
+    try {
+      const lang = hljs.getLanguage(formatedLanguage);
+      if (lang) {
+        return hljs.highlight(content, {
+          language: formatedLanguage,
+        }).value;
+      }
+    } catch (error) {
+      // Skip error and use default highlighted code.
+    }
 
-  const handleCopyButtonClick = () => {
+    // Escape any HTML entities when rendering original content.
+    return Object.assign(document.createElement("span"), {
+      textContent: content,
+    }).innerHTML;
+  }, [formatedLanguage, content]);
+
+  const handleCopyButtonClick = useCallback(() => {
     copy(content);
     toast.success("Copied to clipboard!");
-  };
+  }, [content]);
 
   return (
-    <pre className="w-full my-1 p-3 rounded bg-gray-100 dark:bg-zinc-700 whitespace-pre-wrap relative">
-      <IconButton
-        size="sm"
-        className="!absolute top-0.5 right-0.5 opacity-50"
-        sx={{
-          "--IconButton-size": "24px",
-        }}
-        onClick={handleCopyButtonClick}
-      >
-        <Icon.Copy className="w-4 h-auto" />
-      </IconButton>
-      <code
-        className={classNames(`language-${formatedLanguage}`, "block text-sm")}
-        dangerouslySetInnerHTML={{ __html: highlightedCode }}
-      ></code>
-    </pre>
+    <div className="w-full my-1 bg-amber-100 border-l-4 border-amber-400 rounded hover:shadow dark:bg-zinc-600 dark:border-zinc-400 relative">
+      <div className="w-full px-2 py-1 flex flex-row justify-between items-center text-amber-500 dark:text-zinc-400">
+        <span className="text-sm font-mono">{formatedLanguage}</span>
+        <CopyIcon className="w-4 h-auto cursor-pointer hover:opacity-80" onClick={handleCopyButtonClick} />
+      </div>
+
+      <div className="overflow-auto">
+        <pre className={cn("no-wrap overflow-auto", "w-full p-2 bg-amber-50 dark:bg-zinc-700 relative")}>
+          <code
+            className={cn(`language-${formatedLanguage}`, "block text-sm leading-5")}
+            dangerouslySetInnerHTML={{ __html: highlightedCode }}
+          ></code>
+        </pre>
+      </div>
+    </div>
   );
 };
 

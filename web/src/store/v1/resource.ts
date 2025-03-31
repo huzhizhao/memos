@@ -1,42 +1,44 @@
 import { create } from "zustand";
 import { combine } from "zustand/middleware";
 import { resourceServiceClient } from "@/grpcweb";
-import { Resource } from "@/types/proto/api/v2/resource_service";
+import { CreateResourceRequest, Resource, UpdateResourceRequest } from "@/types/proto/api/v1/resource_service";
 
 interface State {
-  resourceMapById: Record<number, Resource>;
+  resourceMapByName: Record<string, Resource>;
 }
 
 const getDefaultState = (): State => ({
-  resourceMapById: {},
+  resourceMapByName: {},
 });
 
 export const useResourceStore = create(
   combine(getDefaultState(), (set, get) => ({
     setState: (state: State) => set(state),
     getState: () => get(),
-    getOrFetchResourceById: async (id: number, options?: { skipCache?: boolean; skipStore?: boolean }) => {
-      const resourceMap = get().resourceMapById;
-      const resource = resourceMap[id];
-      if (resource && !options?.skipCache) {
-        return resource;
-      }
-
-      const res = await resourceServiceClient.getResource({
-        id,
+    fetchResourceByName: async (name: string) => {
+      const resource = await resourceServiceClient.getResource({
+        name,
       });
-      if (!res.resource) {
-        throw new Error("Resource not found");
-      }
-
-      if (!options?.skipStore) {
-        resourceMap[id] = res.resource;
-        set({ resourceMapById: resourceMap });
-      }
-      return res.resource;
+      const resourceMap = get().resourceMapByName;
+      resourceMap[resource.name] = resource;
+      set({ resourceMapByName: resourceMap });
+      return resource;
     },
-    getResourceById: (id: number) => {
-      return get().resourceMapById[id];
+    getResourceByName: (name: string) => {
+      const resourceMap = get().resourceMapByName;
+      return Object.values(resourceMap).find((r) => r.name === name);
     },
-  }))
+    async createResource(create: CreateResourceRequest): Promise<Resource> {
+      const resource = await resourceServiceClient.createResource(create);
+      const resourceMap = get().resourceMapByName;
+      resourceMap[resource.name] = resource;
+      return resource;
+    },
+    async updateResource(update: UpdateResourceRequest): Promise<Resource> {
+      const resource = await resourceServiceClient.updateResource(update);
+      const resourceMap = get().resourceMapByName;
+      resourceMap[resource.name] = resource;
+      return resource;
+    },
+  })),
 );

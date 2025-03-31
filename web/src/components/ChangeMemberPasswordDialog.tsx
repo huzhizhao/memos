@@ -1,11 +1,11 @@
-import { Button, IconButton, Input } from "@mui/joy";
+import { Button, Input } from "@usememos/mui";
+import { XIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "react-hot-toast";
-import { useUserStore } from "@/store/v1";
-import { User } from "@/types/proto/api/v2/user_service";
+import { userStore } from "@/store/v2";
+import { User } from "@/types/proto/api/v1/user_service";
 import { useTranslate } from "@/utils/i18n";
 import { generateDialog } from "./Dialog";
-import Icon from "./Icon";
 
 interface Props extends DialogProps {
   user: User;
@@ -14,7 +14,6 @@ interface Props extends DialogProps {
 const ChangeMemberPasswordDialog: React.FC<Props> = (props: Props) => {
   const { user, destroy } = props;
   const t = useTranslate();
-  const userStore = useUserStore();
   const [newPassword, setNewPassword] = useState("");
   const [newPasswordAgain, setNewPasswordAgain] = useState("");
 
@@ -54,27 +53,27 @@ const ChangeMemberPasswordDialog: React.FC<Props> = (props: Props) => {
           name: user.name,
           password: newPassword,
         },
-        ["password"]
+        ["password"],
       );
       toast(t("message.password-changed"));
       handleCloseBtnClick();
     } catch (error: any) {
       console.error(error);
-      toast.error(error.response.data.message);
+      toast.error(error.details);
     }
   };
 
   return (
-    <>
-      <div className="dialog-header-container !w-64">
-        <p className="title-text">
+    <div className="max-w-full shadow flex flex-col justify-start items-start bg-white dark:bg-zinc-800 dark:text-gray-300 p-4 rounded-lg">
+      <div className="flex flex-row justify-between items-center mb-4 gap-2 w-full">
+        <p>
           {t("setting.account-section.change-password")} ({user.nickname})
         </p>
-        <IconButton size="sm" onClick={handleCloseBtnClick}>
-          <Icon.X className="w-5 h-auto" />
-        </IconButton>
+        <Button size="sm" variant="plain" onClick={handleCloseBtnClick}>
+          <XIcon className="w-5 h-auto" />
+        </Button>
       </div>
-      <div className="dialog-content-container">
+      <div className="flex flex-col justify-start items-start !w-80">
         <p className="text-sm mb-1">{t("auth.new-password")}</p>
         <Input
           className="w-full"
@@ -92,7 +91,7 @@ const ChangeMemberPasswordDialog: React.FC<Props> = (props: Props) => {
           onChange={handleNewPasswordAgainChanged}
         />
         <div className="flex flex-row justify-end items-center mt-4 w-full gap-x-2">
-          <Button color="neutral" variant="plain" onClick={handleCloseBtnClick}>
+          <Button variant="plain" onClick={handleCloseBtnClick}>
             {t("common.cancel")}
           </Button>
           <Button color="primary" onClick={handleSaveBtnClick}>
@@ -100,7 +99,7 @@ const ChangeMemberPasswordDialog: React.FC<Props> = (props: Props) => {
           </Button>
         </div>
       </div>
-    </>
+    </div>
   );
 };
 
@@ -111,7 +110,7 @@ function showChangeMemberPasswordDialog(user: User) {
       dialogName: "change-member-password-dialog",
     },
     ChangeMemberPasswordDialog,
-    { user }
+    { user },
   );
 }
 

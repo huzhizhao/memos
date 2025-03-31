@@ -1,11 +1,15 @@
-import classNames from "classnames";
+import { Tooltip } from "@mui/joy";
+import { BellIcon, PaperclipIcon, SettingsIcon, UserCircleIcon } from "lucide-react";
+import { observer } from "mobx-react-lite";
 import { useEffect } from "react";
 import { NavLink } from "react-router-dom";
 import useCurrentUser from "@/hooks/useCurrentUser";
-import { useInboxStore } from "@/store/v1";
-import { Inbox_Status } from "@/types/proto/api/v2/inbox_service";
+import { Routes } from "@/router";
+import { userStore } from "@/store/v2";
+import { Inbox_Status } from "@/types/proto/api/v1/inbox_service";
+import { cn } from "@/utils";
 import { useTranslate } from "@/utils/i18n";
-import Icon from "./Icon";
+import BrandBanner from "./BrandBanner";
 import UserBanner from "./UserBanner";
 
 interface NavLinkItem {
@@ -16,133 +20,97 @@ interface NavLinkItem {
 }
 
 interface Props {
+  collapsed?: boolean;
   className?: string;
 }
 
-const Navigation = (props: Props) => {
+const Navigation = observer((props: Props) => {
+  const { collapsed, className } = props;
   const t = useTranslate();
-  const user = useCurrentUser();
-  const inboxStore = useInboxStore();
-  const hasUnreadInbox = inboxStore.inboxes.some((inbox) => inbox.status === Inbox_Status.UNREAD);
+  const currentUser = useCurrentUser();
+  const hasUnreadInbox = userStore.state.inboxes.some((inbox) => inbox.status === Inbox_Status.UNREAD);
 
   useEffect(() => {
-    if (!user) {
+    if (!currentUser) {
       return;
     }
 
-    inboxStore.fetchInboxes();
-    // Fetch inboxes every 5 minutes.
-    const timer = setInterval(async () => {
-      await inboxStore.fetchInboxes();
-    }, 1000 * 60 * 5);
-
-    return () => {
-      clearInterval(timer);
-    };
+    userStore.fetchInboxes();
   }, []);
 
-  const homeNavLink: NavLinkItem = {
-    id: "header-home",
-    path: "/",
-    title: t("common.home"),
-    icon: <Icon.Home className="mr-3 w-6 h-auto opacity-70" />,
-  };
-  const timelineNavLink: NavLinkItem = {
-    id: "header-timeline",
-    path: "/timeline",
-    title: t("timeline.title"),
-    icon: <Icon.GanttChartSquare className="mr-3 w-6 h-auto opacity-70" />,
-  };
   const resourcesNavLink: NavLinkItem = {
     id: "header-resources",
-    path: "/resources",
+    path: Routes.RESOURCES,
     title: t("common.resources"),
-    icon: <Icon.Paperclip className="mr-3 w-6 h-auto opacity-70" />,
-  };
-  const exploreNavLink: NavLinkItem = {
-    id: "header-explore",
-    path: "/explore",
-    title: t("common.explore"),
-    icon: <Icon.Globe2 className="mr-3 w-6 h-auto opacity-70" />,
-  };
-  const profileNavLink: NavLinkItem = {
-    id: "header-profile",
-    path: user ? `/u/${encodeURIComponent(user.username)}` : "",
-    title: t("common.profile"),
-    icon: <Icon.User2 className="mr-3 w-6 h-auto opacity-70" />,
+    icon: <PaperclipIcon className="w-6 h-auto opacity-70 shrink-0" />,
   };
   const inboxNavLink: NavLinkItem = {
     id: "header-inbox",
-    path: "/inbox",
+    path: Routes.INBOX,
     title: t("common.inbox"),
     icon: (
       <>
         <div className="relative">
-          <Icon.Bell className="mr-3 w-6 h-auto opacity-70" />
+          <BellIcon className="w-6 h-auto opacity-70 shrink-0" />
           {hasUnreadInbox && <div className="absolute top-0 left-5 w-2 h-2 rounded-full bg-blue-500"></div>}
         </div>
       </>
     ),
   };
-  const archivedNavLink: NavLinkItem = {
-    id: "header-archived",
-    path: "/archived",
-    title: t("common.archived"),
-    icon: <Icon.Archive className="mr-3 w-6 h-auto opacity-70" />,
-  };
   const settingNavLink: NavLinkItem = {
     id: "header-setting",
-    path: "/setting",
+    path: Routes.SETTING,
     title: t("common.settings"),
-    icon: <Icon.Settings className="mr-3 w-6 h-auto opacity-70" />,
+    icon: <SettingsIcon className="w-6 h-auto opacity-70 shrink-0" />,
   };
   const signInNavLink: NavLinkItem = {
     id: "header-auth",
-    path: "/auth",
+    path: Routes.AUTH,
     title: t("common.sign-in"),
-    icon: <Icon.LogIn className="mr-3 w-6 h-auto opacity-70" />,
-  };
-  const aboutNavLink: NavLinkItem = {
-    id: "header-about",
-    path: "/about",
-    title: t("common.about"),
-    icon: <Icon.Smile className="mr-3 w-6 h-auto opacity-70" />,
+    icon: <UserCircleIcon className="w-6 h-auto opacity-70 shrink-0" />,
   };
 
-  const navLinks: NavLinkItem[] = user
-    ? [homeNavLink, timelineNavLink, resourcesNavLink, exploreNavLink, profileNavLink, inboxNavLink, archivedNavLink, settingNavLink]
-    : [exploreNavLink, signInNavLink, aboutNavLink];
+  const navLinks: NavLinkItem[] = currentUser ? [resourcesNavLink, inboxNavLink, settingNavLink] : [signInNavLink];
 
   return (
     <header
-      className={classNames(
-        "w-full h-full overflow-auto flex flex-col justify-start items-start py-4 md:pt-6 z-30 hide-scrollbar",
-        props.className
+      className={cn(
+        "w-full h-full overflow-auto flex flex-col justify-between items-start gap-4 py-4 md:pt-6 z-30 hide-scrollbar",
+        className,
       )}
     >
-      <UserBanner />
-      <div className="w-full px-1 py-2 flex flex-col justify-start items-start shrink-0 space-y-2">
+      <div className="w-full px-1 py-1 flex flex-col justify-start items-start space-y-2 overflow-auto hide-scrollbar shrink">
+        <NavLink className="mb-2" to={currentUser ? Routes.ROOT : Routes.EXPLORE}>
+          <BrandBanner collapsed={collapsed} />
+        </NavLink>
         {navLinks.map((navLink) => (
           <NavLink
             className={({ isActive }) =>
-              classNames(
-                "w-full px-4 pr-5 py-2 rounded-2xl border flex flex-row items-center text-lg text-gray-800 dark:text-gray-300 hover:bg-white hover:border-gray-200 dark:hover:border-zinc-700 dark:hover:bg-zinc-800",
-                isActive ? "bg-white drop-shadow-sm dark:bg-zinc-800 border-gray-200 dark:border-zinc-700" : "border-transparent"
+              cn(
+                "px-2 py-2 rounded-2xl border flex flex-row items-center text-lg text-gray-800 dark:text-gray-400 hover:bg-white hover:border-gray-200 dark:hover:border-zinc-700 dark:hover:bg-zinc-800",
+                collapsed ? "" : "w-full px-4",
+                isActive ? "bg-white drop-shadow-sm dark:bg-zinc-800 border-gray-200 dark:border-zinc-700" : "border-transparent",
               )
             }
             key={navLink.id}
             to={navLink.path}
             id={navLink.id}
-            unstable_viewTransition
+            viewTransition
           >
-            <>
-              {navLink.icon} {navLink.title}
-            </>
+            {props.collapsed ? (
+              <Tooltip title={navLink.title} placement="right" arrow>
+                <div>{navLink.icon}</div>
+              </Tooltip>
+            ) : (
+              navLink.icon
+            )}
+            {!props.collapsed && <span className="ml-3 truncate">{navLink.title}</span>}
           </NavLink>
         ))}
       </div>
+      {currentUser && <UserBanner collapsed={collapsed} />}
     </header>
   );
-};
+});
 
 export default Navigation;

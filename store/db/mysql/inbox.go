@@ -2,7 +2,7 @@ package mysql
 
 import (
 	"context"
-	"database/sql"
+	"fmt"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -62,6 +62,12 @@ func (d *DB) ListInboxes(ctx context.Context, find *store.FindInbox) ([]*store.I
 	}
 
 	query := "SELECT `id`, UNIX_TIMESTAMP(`created_ts`), `sender_id`, `receiver_id`, `status`, `message` FROM `inbox` WHERE " + strings.Join(where, " AND ") + " ORDER BY `created_ts` DESC"
+	if find.Limit != nil {
+		query = fmt.Sprintf("%s LIMIT %d", query, *find.Limit)
+		if find.Offset != nil {
+			query = fmt.Sprintf("%s OFFSET %d", query, *find.Offset)
+		}
+	}
 	rows, err := d.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -104,7 +110,7 @@ func (d *DB) GetInbox(ctx context.Context, find *store.FindInbox) (*store.Inbox,
 		return nil, errors.Wrap(err, "failed to get inbox")
 	}
 	if len(list) != 1 {
-		return nil, errors.Wrapf(nil, "unexpected inbox count: %d", len(list))
+		return nil, errors.Errorf("unexpected inbox count: %d", len(list))
 	}
 	return list[0], nil
 }
@@ -131,15 +137,5 @@ func (d *DB) DeleteInbox(ctx context.Context, delete *store.DeleteInbox) error {
 	if _, err := result.RowsAffected(); err != nil {
 		return err
 	}
-	return nil
-}
-
-func vacuumInbox(ctx context.Context, tx *sql.Tx) error {
-	stmt := "DELETE FROM `inbox` WHERE `sender_id` NOT IN (SELECT `id` FROM `user`)"
-	_, err := tx.ExecContext(ctx, stmt)
-	if err != nil {
-		return err
-	}
-
 	return nil
 }

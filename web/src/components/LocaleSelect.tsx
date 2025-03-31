@@ -1,7 +1,7 @@
 import { Option, Select } from "@mui/joy";
+import { GlobeIcon } from "lucide-react";
 import { FC } from "react";
-import { availableLocales } from "@/i18n";
-import Icon from "./Icon";
+import { locales } from "@/i18n";
 
 interface Props {
   value: Locale;
@@ -19,11 +19,11 @@ const LocaleSelect: FC<Props> = (props: Props) => {
   return (
     <Select
       className={`!min-w-[10rem] w-auto whitespace-nowrap ${className ?? ""}`}
-      startDecorator={<Icon.Globe className="w-4 h-auto" />}
+      startDecorator={<GlobeIcon className="w-4 h-auto" />}
       value={value}
       onChange={(_, value) => handleSelectChange(value as Locale)}
     >
-      {availableLocales.map((locale) => {
+      {locales.map((locale) => {
         try {
           const languageName = new Intl.DisplayNames([locale], { type: "language" }).of(locale);
           if (languageName) {

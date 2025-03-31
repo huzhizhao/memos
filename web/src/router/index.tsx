@@ -1,139 +1,179 @@
-import { lazy } from "react";
+import { Suspense, lazy } from "react";
 import { createBrowserRouter } from "react-router-dom";
 import App from "@/App";
-import SuspenseWrapper from "@/layouts/SuspenseWrapper";
-import { initialGlobalState } from "@/store/module";
-import AuthStatusProvider from "./AuthStatusProvider";
+import HomeLayout from "@/layouts/HomeLayout";
+import RootLayout from "@/layouts/RootLayout";
+import Home from "@/pages/Home";
+import Loading from "@/pages/Loading";
 
-const Root = lazy(() => import("@/layouts/Root"));
-const SignIn = lazy(() => import("@/pages/SignIn"));
-const SignUp = lazy(() => import("@/pages/SignUp"));
+const AdminSignIn = lazy(() => import("@/pages/AdminSignIn"));
+const Archived = lazy(() => import("@/pages/Archived"));
 const AuthCallback = lazy(() => import("@/pages/AuthCallback"));
 const Explore = lazy(() => import("@/pages/Explore"));
-const Home = lazy(() => import("@/pages/Home"));
-const UserProfile = lazy(() => import("@/pages/UserProfile"));
-const MemoDetail = lazy(() => import("@/pages/MemoDetail"));
-const Archived = lazy(() => import("@/pages/Archived"));
-const Timeline = lazy(() => import("@/pages/Timeline"));
-const Resources = lazy(() => import("@/pages/Resources"));
 const Inboxes = lazy(() => import("@/pages/Inboxes"));
-const Setting = lazy(() => import("@/pages/Setting"));
-const About = lazy(() => import("@/pages/About"));
+const MemoDetail = lazy(() => import("@/pages/MemoDetail"));
 const NotFound = lazy(() => import("@/pages/NotFound"));
 const PermissionDenied = lazy(() => import("@/pages/PermissionDenied"));
+const Resources = lazy(() => import("@/pages/Resources"));
+const Setting = lazy(() => import("@/pages/Setting"));
+const SignIn = lazy(() => import("@/pages/SignIn"));
+const SignUp = lazy(() => import("@/pages/SignUp"));
+const UserProfile = lazy(() => import("@/pages/UserProfile"));
+const MemoDetailRedirect = lazy(() => import("./MemoDetailRedirect"));
 
-const initialGlobalStateLoader = async () => {
-  try {
-    await initialGlobalState();
-  } catch (error) {
-    // do nothing.
-  }
-  return null;
-};
+export enum Routes {
+  ROOT = "/",
+  RESOURCES = "/resources",
+  INBOX = "/inbox",
+  ARCHIVED = "/archived",
+  SETTING = "/setting",
+  EXPLORE = "/explore",
+  AUTH = "/auth",
+}
 
 const router = createBrowserRouter([
   {
     path: "/",
     element: <App />,
-    loader: () => initialGlobalStateLoader(),
     children: [
       {
-        path: "/auth/",
-        element: <SuspenseWrapper />,
+        path: Routes.AUTH,
         children: [
           {
             path: "",
-            element: <SignIn />,
+            element: (
+              <Suspense fallback={<Loading />}>
+                <SignIn />
+              </Suspense>
+            ),
+          },
+          {
+            path: "admin",
+            element: (
+              <Suspense fallback={<Loading />}>
+                <AdminSignIn />
+              </Suspense>
+            ),
           },
           {
             path: "signup",
-            element: <SignUp />,
+            element: (
+              <Suspense fallback={<Loading />}>
+                <SignUp />
+              </Suspense>
+            ),
           },
           {
             path: "callback",
-            element: <AuthCallback />,
+            element: (
+              <Suspense fallback={<Loading />}>
+                <AuthCallback />
+              </Suspense>
+            ),
           },
         ],
       },
       {
-        path: "/",
-        element: <Root />,
+        path: Routes.ROOT,
+        element: <RootLayout />,
         children: [
           {
-            path: "",
-            element: (
-              <AuthStatusProvider>
-                <Home />
-              </AuthStatusProvider>
-            ),
+            element: <HomeLayout />,
+            children: [
+              {
+                path: "",
+                element: <Home />,
+              },
+              {
+                path: Routes.EXPLORE,
+                element: (
+                  <Suspense fallback={<Loading />}>
+                    <Explore />
+                  </Suspense>
+                ),
+              },
+              {
+                path: Routes.ARCHIVED,
+                element: (
+                  <Suspense fallback={<Loading />}>
+                    <Archived />
+                  </Suspense>
+                ),
+              },
+              {
+                path: "u/:username",
+                element: (
+                  <Suspense fallback={<Loading />}>
+                    <UserProfile />
+                  </Suspense>
+                ),
+              },
+            ],
           },
           {
-            path: "timeline",
+            path: Routes.RESOURCES,
             element: (
-              <AuthStatusProvider>
-                <Timeline />
-              </AuthStatusProvider>
-            ),
-          },
-          {
-            path: "resources",
-            element: (
-              <AuthStatusProvider>
+              <Suspense fallback={<Loading />}>
                 <Resources />
-              </AuthStatusProvider>
+              </Suspense>
             ),
           },
           {
-            path: "inbox",
+            path: Routes.INBOX,
             element: (
-              <AuthStatusProvider>
+              <Suspense fallback={<Loading />}>
                 <Inboxes />
-              </AuthStatusProvider>
+              </Suspense>
             ),
           },
           {
-            path: "archived",
+            path: Routes.SETTING,
             element: (
-              <AuthStatusProvider>
-                <Archived />
-              </AuthStatusProvider>
-            ),
-          },
-          {
-            path: "setting",
-            element: (
-              <AuthStatusProvider>
+              <Suspense fallback={<Loading />}>
                 <Setting />
-              </AuthStatusProvider>
+              </Suspense>
             ),
           },
           {
-            path: "explore",
-            element: <Explore />,
+            path: "memos/:uid",
+            element: (
+              <Suspense fallback={<Loading />}>
+                <MemoDetail />
+              </Suspense>
+            ),
           },
+          // Redirect old path to new path.
           {
-            path: "m/:memoName",
-            element: <MemoDetail />,
-          },
-          {
-            path: "u/:username",
-            element: <UserProfile />,
-          },
-          {
-            path: "about",
-            element: <About />,
+            path: "m/:uid",
+            element: (
+              <Suspense fallback={<Loading />}>
+                <MemoDetailRedirect />
+              </Suspense>
+            ),
           },
           {
             path: "403",
-            element: <PermissionDenied />,
+            element: (
+              <Suspense fallback={<Loading />}>
+                <PermissionDenied />
+              </Suspense>
+            ),
           },
           {
             path: "404",
-            element: <NotFound />,
+            element: (
+              <Suspense fallback={<Loading />}>
+                <NotFound />
+              </Suspense>
+            ),
           },
           {
             path: "*",
-            element: <NotFound />,
+            element: (
+              <Suspense fallback={<Loading />}>
+                <NotFound />
+              </Suspense>
+            ),
           },
         ],
       },

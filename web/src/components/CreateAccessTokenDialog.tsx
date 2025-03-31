@@ -1,4 +1,6 @@
-import { Button, IconButton, Input, Radio, RadioGroup } from "@mui/joy";
+import { Radio, RadioGroup } from "@mui/joy";
+import { Button, Input } from "@usememos/mui";
+import { XIcon } from "lucide-react";
 import React, { useState } from "react";
 import { toast } from "react-hot-toast";
 import { userServiceClient } from "@/grpcweb";
@@ -6,26 +8,10 @@ import useCurrentUser from "@/hooks/useCurrentUser";
 import useLoading from "@/hooks/useLoading";
 import { useTranslate } from "@/utils/i18n";
 import { generateDialog } from "./Dialog";
-import Icon from "./Icon";
 
 interface Props extends DialogProps {
   onConfirm: () => void;
 }
-
-const expirationOptions = [
-  {
-    label: "8 hours",
-    value: 3600 * 8,
-  },
-  {
-    label: "1 month",
-    value: 3600 * 24 * 30,
-  },
-  {
-    label: "Never",
-    value: 0,
-  },
-];
 
 interface State {
   description: string;
@@ -41,6 +27,21 @@ const CreateAccessTokenDialog: React.FC<Props> = (props: Props) => {
     expiration: 3600 * 8,
   });
   const requestState = useLoading(false);
+
+  const expirationOptions = [
+    {
+      label: t("setting.access-token-section.create-dialog.duration-8h"),
+      value: 3600 * 8,
+    },
+    {
+      label: t("setting.access-token-section.create-dialog.duration-1m"),
+      value: 3600 * 24 * 30,
+    },
+    {
+      label: t("setting.access-token-section.create-dialog.duration-never"),
+      value: 0,
+    },
+  ];
 
   const setPartialState = (partialState: Partial<State>) => {
     setState({
@@ -63,7 +64,7 @@ const CreateAccessTokenDialog: React.FC<Props> = (props: Props) => {
 
   const handleSaveBtnClick = async () => {
     if (!state.description) {
-      toast.error("Description is required");
+      toast.error(t("message.description-is-required"));
       return;
     }
 
@@ -77,29 +78,29 @@ const CreateAccessTokenDialog: React.FC<Props> = (props: Props) => {
       onConfirm();
       destroy();
     } catch (error: any) {
+      toast.error(error.details);
       console.error(error);
-      toast.error(error.response.data.message);
     }
   };
 
   return (
-    <>
-      <div className="dialog-header-container">
-        <p className="title-text">Create access token</p>
-        <IconButton size="sm" onClick={() => destroy()}>
-          <Icon.X className="w-5 h-auto" />
-        </IconButton>
+    <div className="max-w-full shadow flex flex-col justify-start items-start bg-white dark:bg-zinc-800 dark:text-gray-300 p-4 rounded-lg">
+      <div className="flex flex-row justify-between items-center w-full mb-4 gap-2">
+        <p>{t("setting.access-token-section.create-dialog.create-access-token")}</p>
+        <Button size="sm" variant="plain" onClick={() => destroy()}>
+          <XIcon className="w-5 h-auto" />
+        </Button>
       </div>
-      <div className="dialog-content-container !w-80">
+      <div className="flex flex-col justify-start items-start !w-80">
         <div className="w-full flex flex-col justify-start items-start mb-3">
           <span className="mb-2">
-            Description <span className="text-red-600">*</span>
+            {t("setting.access-token-section.create-dialog.description")} <span className="text-red-600">*</span>
           </span>
           <div className="relative w-full">
             <Input
               className="w-full"
               type="text"
-              placeholder="Some description"
+              placeholder={t("setting.access-token-section.create-dialog.some-description")}
               value={state.description}
               onChange={handleDescriptionInputChange}
             />
@@ -107,7 +108,7 @@ const CreateAccessTokenDialog: React.FC<Props> = (props: Props) => {
         </div>
         <div className="w-full flex flex-col justify-start items-start mb-3">
           <span className="mb-2">
-            Expiration <span className="text-red-600">*</span>
+            {t("setting.access-token-section.create-dialog.expiration")} <span className="text-red-600">*</span>
           </span>
           <div className="w-full flex flex-row justify-start items-center text-base">
             <RadioGroup orientation="horizontal" value={state.expiration} onChange={handleRoleInputChange}>
@@ -118,15 +119,15 @@ const CreateAccessTokenDialog: React.FC<Props> = (props: Props) => {
           </div>
         </div>
         <div className="w-full flex flex-row justify-end items-center mt-4 space-x-2">
-          <Button color="neutral" variant="plain" disabled={requestState.isLoading} loading={requestState.isLoading} onClick={destroy}>
+          <Button variant="plain" disabled={requestState.isLoading} onClick={destroy}>
             {t("common.cancel")}
           </Button>
-          <Button color="primary" disabled={requestState.isLoading} loading={requestState.isLoading} onClick={handleSaveBtnClick}>
+          <Button color="primary" disabled={requestState.isLoading} onClick={handleSaveBtnClick}>
             {t("common.create")}
           </Button>
         </div>
       </div>
-    </>
+    </div>
   );
 };
 
@@ -139,7 +140,7 @@ function showCreateAccessTokenDialog(onConfirm: () => void) {
     CreateAccessTokenDialog,
     {
       onConfirm,
-    }
+    },
   );
 }
 

@@ -2,19 +2,29 @@ package mysql
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
 
 	"github.com/pkg/errors"
+	"google.golang.org/protobuf/encoding/protojson"
 
+	"github.com/usememos/memos/plugin/filter"
+	storepb "github.com/usememos/memos/proto/gen/store"
 	"github.com/usememos/memos/store"
 )
 
 func (d *DB) CreateMemo(ctx context.Context, create *store.Memo) (*store.Memo, error) {
-	fields := []string{"`resource_name`", "`creator_id`", "`content`", "`visibility`"}
-	placeholder := []string{"?", "?", "?", "?"}
-	args := []any{create.ResourceName, create.CreatorID, create.Content, create.Visibility}
+	fields := []string{"`uid`", "`creator_id`", "`content`", "`visibility`", "`payload`"}
+	placeholder := []string{"?", "?", "?", "?", "?"}
+	payload := "{}"
+	if create.Payload != nil {
+		payloadBytes, err := protojson.Marshal(create.Payload)
+		if err != nil {
+			return nil, err
+		}
+		payload = string(payloadBytes)
+	}
+	args := []any{create.UID, create.CreatorID, create.Content, create.Visibility, payload}
 
 	stmt := "INSERT INTO `memo` (" + strings.Join(fields, ", ") + ") VALUES (" + strings.Join(placeholder, ", ") + ")"
 	result, err := d.db.ExecContext(ctx, stmt, args...)
@@ -43,8 +53,8 @@ func (d *DB) ListMemos(ctx context.Context, find *store.FindMemo) ([]*store.Memo
 	if v := find.ID; v != nil {
 		where, args = append(where, "`memo`.`id` = ?"), append(args, *v)
 	}
-	if v := find.ResourceName; v != nil {
-		where, args = append(where, "`memo`.`resource_name` = ?"), append(args, *v)
+	if v := find.UID; v != nil {
+		where, args = append(where, "`memo`.`uid` = ?"), append(args, *v)
 	}
 	if v := find.CreatorID; v != nil {
 		where, args = append(where, "`memo`.`creator_id` = ?"), append(args, *v)
@@ -77,37 +87,87 @@ func (d *DB) ListMemos(ctx context.Context, find *store.FindMemo) ([]*store.Memo
 		}
 		where = append(where, fmt.Sprintf("`memo`.`visibility` in (%s)", strings.Join(placeholder, ",")))
 	}
+	if v := find.Pinned; v != nil {
+		where, args = append(where, "`memo`.`pinned` = ?"), append(args, *v)
+	}
+	if v := find.PayloadFind; v != nil {
+		if v.Raw != nil {
+			where, args = append(where, "`memo`.`payload` = ?"), append(args, *v.Raw)
+		}
+		if len(v.TagSearch) != 0 {
+			for _, tag := range v.TagSearch {
+				where, args = append(where, "(JSON_CONTAINS(JSON_EXTRACT(`memo`.`payload`, '$.tags'), ?) OR JSON_CONTAINS(JSON_EXTRACT(`memo`.`payload`, '$.tags'), ?))"), append(args, fmt.Sprintf(`"%s"`, tag), fmt.Sprintf(`"%s/"`, tag))
+			}
+		}
+		if v.HasLink {
+			where = append(where, "JSON_EXTRACT(`memo`.`payload`, '$.property.hasLink') IS TRUE")
+		}
+		if v.HasTaskList {
+			where = append(where, "JSON_EXTRACT(`memo`.`payload`, '$.property.hasTaskList') IS TRUE")
+		}
+		if v.HasCode {
+			where = append(where, "JSON_EXTRACT(`memo`.`payload`, '$.property.hasCode') IS TRUE")
+		}
+		if v.HasIncompleteTasks {
+			where = append(where, "JSON_EXTRACT(`memo`.`payload`, '$.property.hasIncompleteTasks') IS TRUE")
+		}
+	}
+	if v := find.Filter; v != nil {
+		// Parse filter string and return the parsed expression.
+		// The filter string should be a CEL expression.
+		parsedExpr, err := filter.Parse(*v, filter.MemoFilterCELAttributes...)
+		if err != nil {
+			return nil, err
+		}
+		convertCtx := filter.NewConvertContext()
+		// ConvertExprToSQL converts the parsed expression to a SQL condition string.
+		if err := d.ConvertExprToSQL(convertCtx, parsedExpr.GetExpr()); err != nil {
+			return nil, err
+		}
+		condition := convertCtx.Buffer.String()
+		if condition != "" {
+			where = append(where, fmt.Sprintf("(%s)", condition))
+			args = append(args, convertCtx.Args...)
+		}
+	}
 	if find.ExcludeComments {
 		having = append(having, "`parent_id` IS NULL")
 	}
 
-	orders := []string{}
+	order := "DESC"
+	if find.OrderByTimeAsc {
+		order = "ASC"
+	}
+	orderBy := []string{}
 	if find.OrderByPinned {
-		orders = append(orders, "`pinned` DESC")
+		orderBy = append(orderBy, "`pinned` DESC")
 	}
 	if find.OrderByUpdatedTs {
-		orders = append(orders, "`updated_ts` DESC")
+		orderBy = append(orderBy, "`updated_ts` "+order)
 	} else {
-		orders = append(orders, "`created_ts` DESC")
+		orderBy = append(orderBy, "`created_ts` "+order)
 	}
-	orders = append(orders, "`id` DESC")
-
 	fields := []string{
 		"`memo`.`id` AS `id`",
-		"`memo`.`resource_name` AS `resource_name`",
+		"`memo`.`uid` AS `uid`",
 		"`memo`.`creator_id` AS `creator_id`",
 		"UNIX_TIMESTAMP(`memo`.`created_ts`) AS `created_ts`",
 		"UNIX_TIMESTAMP(`memo`.`updated_ts`) AS `updated_ts`",
 		"`memo`.`row_status` AS `row_status`",
 		"`memo`.`visibility` AS `visibility`",
-		"IFNULL(`memo_organizer`.`pinned`, 0) AS `pinned`",
+		"`memo`.`pinned` AS `pinned`",
+		"`memo`.`payload` AS `payload`",
 		"`memo_relation`.`related_memo_id` AS `parent_id`",
 	}
 	if !find.ExcludeContent {
 		fields = append(fields, "`memo`.`content` AS `content`")
 	}
 
-	query := "SELECT " + strings.Join(fields, ", ") + " FROM `memo` LEFT JOIN `memo_organizer` ON `memo`.`id` = `memo_organizer`.`memo_id` AND `memo`.`creator_id` = `memo_organizer`.`user_id` LEFT JOIN `memo_relation` ON `memo`.`id` = `memo_relation`.`memo_id` AND `memo_relation`.`type` = \"COMMENT\" WHERE " + strings.Join(where, " AND ") + " HAVING " + strings.Join(having, " AND ") + " ORDER BY " + strings.Join(orders, ", ")
+	query := "SELECT " + strings.Join(fields, ", ") + " FROM `memo`" + " " +
+		"LEFT JOIN `memo_relation` ON `memo`.`id` = `memo_relation`.`memo_id` AND `memo_relation`.`type` = 'COMMENT'" + " " +
+		"WHERE " + strings.Join(where, " AND ") + " " +
+		"HAVING " + strings.Join(having, " AND ") + " " +
+		"ORDER BY " + strings.Join(orderBy, ", ")
 	if find.Limit != nil {
 		query = fmt.Sprintf("%s LIMIT %d", query, *find.Limit)
 		if find.Offset != nil {
@@ -124,15 +184,17 @@ func (d *DB) ListMemos(ctx context.Context, find *store.FindMemo) ([]*store.Memo
 	list := make([]*store.Memo, 0)
 	for rows.Next() {
 		var memo store.Memo
+		var payloadBytes []byte
 		dests := []any{
 			&memo.ID,
-			&memo.ResourceName,
+			&memo.UID,
 			&memo.CreatorID,
 			&memo.CreatedTs,
 			&memo.UpdatedTs,
 			&memo.RowStatus,
 			&memo.Visibility,
 			&memo.Pinned,
+			&payloadBytes,
 			&memo.ParentID,
 		}
 		if !find.ExcludeContent {
@@ -141,6 +203,11 @@ func (d *DB) ListMemos(ctx context.Context, find *store.FindMemo) ([]*store.Memo
 		if err := rows.Scan(dests...); err != nil {
 			return nil, err
 		}
+		payload := &storepb.MemoPayload{}
+		if err := protojsonUnmarshaler.Unmarshal(payloadBytes, payload); err != nil {
+			return nil, errors.Wrap(err, "failed to unmarshal payload")
+		}
+		memo.Payload = payload
 		list = append(list, &memo)
 	}
 
@@ -166,8 +233,8 @@ func (d *DB) GetMemo(ctx context.Context, find *store.FindMemo) (*store.Memo, er
 
 func (d *DB) UpdateMemo(ctx context.Context, update *store.UpdateMemo) error {
 	set, args := []string{}, []any{}
-	if v := update.ResourceName; v != nil {
-		set, args = append(set, "`resource_name` = ?"), append(args, *v)
+	if v := update.UID; v != nil {
+		set, args = append(set, "`uid` = ?"), append(args, *v)
 	}
 	if v := update.CreatedTs; v != nil {
 		set, args = append(set, "`created_ts` = FROM_UNIXTIME(?)"), append(args, *v)
@@ -183,6 +250,19 @@ func (d *DB) UpdateMemo(ctx context.Context, update *store.UpdateMemo) error {
 	}
 	if v := update.Visibility; v != nil {
 		set, args = append(set, "`visibility` = ?"), append(args, *v)
+	}
+	if v := update.Pinned; v != nil {
+		set, args = append(set, "`pinned` = ?"), append(args, *v)
+	}
+	if v := update.Payload; v != nil {
+		payloadBytes, err := protojson.Marshal(v)
+		if err != nil {
+			return err
+		}
+		set, args = append(set, "`payload` = ?"), append(args, string(payloadBytes))
+	}
+	if len(set) == 0 {
+		return nil
 	}
 	args = append(args, update.ID)
 
@@ -203,20 +283,5 @@ func (d *DB) DeleteMemo(ctx context.Context, delete *store.DeleteMemo) error {
 	if _, err := result.RowsAffected(); err != nil {
 		return err
 	}
-
-	if err := d.Vacuum(ctx); err != nil {
-		// Prevent linter warning.
-		return err
-	}
-	return nil
-}
-
-func vacuumMemo(ctx context.Context, tx *sql.Tx) error {
-	stmt := "DELETE FROM `memo` WHERE `creator_id` NOT IN (SELECT `id` FROM `user`)"
-	_, err := tx.ExecContext(ctx, stmt)
-	if err != nil {
-		return err
-	}
-
 	return nil
 }

@@ -2,23 +2,22 @@ package store
 
 import (
 	"context"
-	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 
 	"github.com/pkg/errors"
 
 	"github.com/usememos/memos/internal/util"
-)
-
-const (
-	// thumbnailImagePath is the directory to store image thumbnails.
-	thumbnailImagePath = ".thumbnail_cache"
+	"github.com/usememos/memos/plugin/storage/s3"
+	storepb "github.com/usememos/memos/proto/gen/store"
 )
 
 type Resource struct {
-	ID           int32
-	ResourceName string
+	// ID is the system generated unique identifier for the resource.
+	ID int32
+	// UID is the user defined unique identifier for the resource.
+	UID string
 
 	// Standard fields
 	CreatorID int32
@@ -26,35 +25,40 @@ type Resource struct {
 	UpdatedTs int64
 
 	// Domain specific fields
-	Filename     string
-	Blob         []byte
-	InternalPath string
-	ExternalLink string
-	Type         string
-	Size         int64
-	MemoID       *int32
+	Filename    string
+	Blob        []byte
+	Type        string
+	Size        int64
+	StorageType storepb.ResourceStorageType
+	Reference   string
+	Payload     *storepb.ResourcePayload
+
+	// The related memo ID.
+	MemoID *int32
 }
 
 type FindResource struct {
 	GetBlob        bool
 	ID             *int32
-	ResourceName   *string
+	UID            *string
 	CreatorID      *int32
 	Filename       *string
+	FilenameSearch *string
 	MemoID         *int32
 	HasRelatedMemo bool
+	StorageType    *storepb.ResourceStorageType
 	Limit          *int
 	Offset         *int
 }
 
 type UpdateResource struct {
-	ID           int32
-	ResourceName *string
-	UpdatedTs    *int64
-	Filename     *string
-	InternalPath *string
-	MemoID       *int32
-	Blob         []byte
+	ID        int32
+	UID       *string
+	UpdatedTs *int64
+	Filename  *string
+	MemoID    *int32
+	Reference *string
+	Payload   *storepb.ResourcePayload
 }
 
 type DeleteResource struct {
@@ -63,8 +67,8 @@ type DeleteResource struct {
 }
 
 func (s *Store) CreateResource(ctx context.Context, create *Resource) (*Resource, error) {
-	if !util.ResourceNameMatcher.MatchString(create.ResourceName) {
-		return nil, errors.New("invalid resource name")
+	if !util.UIDMatcher.MatchString(create.UID) {
+		return nil, errors.New("invalid uid")
 	}
 	return s.driver.CreateResource(ctx, create)
 }
@@ -86,9 +90,9 @@ func (s *Store) GetResource(ctx context.Context, find *FindResource) (*Resource,
 	return resources[0], nil
 }
 
-func (s *Store) UpdateResource(ctx context.Context, update *UpdateResource) (*Resource, error) {
-	if update.ResourceName != nil && !util.ResourceNameMatcher.MatchString(*update.ResourceName) {
-		return nil, errors.New("invalid resource name")
+func (s *Store) UpdateResource(ctx context.Context, update *UpdateResource) error {
+	if update.UID != nil && !util.UIDMatcher.MatchString(*update.UID) {
+		return errors.New("invalid uid")
 	}
 	return s.driver.UpdateResource(ctx, update)
 }
@@ -99,23 +103,53 @@ func (s *Store) DeleteResource(ctx context.Context, delete *DeleteResource) erro
 		return errors.Wrap(err, "failed to get resource")
 	}
 	if resource == nil {
-		return errors.Wrap(nil, "resource not found")
+		return errors.New("resource not found")
 	}
 
-	// Delete the local file.
-	if resource.InternalPath != "" {
-		resourcePath := filepath.FromSlash(resource.InternalPath)
-		if !filepath.IsAbs(resourcePath) {
-			resourcePath = filepath.Join(s.Profile.Data, resourcePath)
+	if resource.StorageType == storepb.ResourceStorageType_LOCAL {
+		if err := func() error {
+			p := filepath.FromSlash(resource.Reference)
+			if !filepath.IsAbs(p) {
+				p = filepath.Join(s.Profile.Data, p)
+			}
+			err := os.Remove(p)
+			if err != nil {
+				return errors.Wrap(err, "failed to delete local file")
+			}
+			return nil
+		}(); err != nil {
+			return errors.Wrap(err, "failed to delete local file")
 		}
-		_ = os.Remove(resourcePath)
+	} else if resource.StorageType == storepb.ResourceStorageType_S3 {
+		if err := func() error {
+			s3ObjectPayload := resource.Payload.GetS3Object()
+			if s3ObjectPayload == nil {
+				return errors.Errorf("No s3 object found")
+			}
+			workspaceStorageSetting, err := s.GetWorkspaceStorageSetting(ctx)
+			if err != nil {
+				return errors.Wrap(err, "failed to get workspace storage setting")
+			}
+			s3Config := s3ObjectPayload.S3Config
+			if s3Config == nil {
+				if workspaceStorageSetting.S3Config == nil {
+					return errors.Errorf("S3 config is not found")
+				}
+				s3Config = workspaceStorageSetting.S3Config
+			}
+
+			s3Client, err := s3.NewClient(ctx, s3Config)
+			if err != nil {
+				return errors.Wrap(err, "Failed to create s3 client")
+			}
+			if err := s3Client.DeleteObject(ctx, s3ObjectPayload.Key); err != nil {
+				return errors.Wrap(err, "Failed to delete s3 object")
+			}
+			return nil
+		}(); err != nil {
+			slog.Warn("Failed to delete s3 object", slog.Any("err", err))
+		}
 	}
 
-	// Delete the thumbnail.
-	if util.HasPrefixes(resource.Type, "image/png", "image/jpeg") {
-		ext := filepath.Ext(resource.Filename)
-		thumbnailPath := filepath.Join(s.Profile.Data, thumbnailImagePath, fmt.Sprintf("%d%s", resource.ID, ext))
-		_ = os.Remove(thumbnailPath)
-	}
 	return s.driver.DeleteResource(ctx, delete)
 }

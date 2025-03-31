@@ -6,18 +6,17 @@ on:
   pull_request:
     branches:
       - main
-      - "release/*.*.*"
     paths:
       - "web/**"
 
 jobs:
-  eslint-checks:
+  static-checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v2.4.0
+      - uses: pnpm/action-setup@v4.1.0
         with:
-          version: 8
+          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -25,27 +24,26 @@ jobs:
           cache-dependency-path: "web/pnpm-lock.yaml"
       - run: pnpm install
         working-directory: web
-      - run: pnpm type-gen
-        working-directory: web
       - name: Run eslint check
         run: pnpm lint
+        working-directory: web
+      - name: Run type checks
+        run: pnpm type-check
         working-directory: web
 
   frontend-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v2.4.0
+      - uses: pnpm/action-setup@v4.1.0
         with:
-          version: 8
+          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: pnpm
           cache-dependency-path: "web/pnpm-lock.yaml"
       - run: pnpm install
-        working-directory: web
-      - run: pnpm type-gen
         working-directory: web
       - name: Run frontend build
         run: pnpm build

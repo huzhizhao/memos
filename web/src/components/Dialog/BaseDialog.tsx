@@ -1,18 +1,14 @@
 import { CssVarsProvider } from "@mui/joy";
-import classNames from "classnames";
+import { observer } from "mobx-react-lite";
 import { useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
-import { Provider } from "react-redux";
-import { ANIMATION_DURATION } from "@/helpers/consts";
-import store from "@/store";
-import { useDialogStore } from "@/store/module";
+import dialogStore from "@/store/v2/dialog";
 import theme from "@/theme";
-import "@/less/base-dialog.less";
+import { cn } from "@/utils";
 
 interface DialogConfig {
   dialogName: string;
   className?: string;
-  containerClassName?: string;
   clickSpaceDestroy?: boolean;
 }
 
@@ -20,17 +16,16 @@ interface Props extends DialogConfig, DialogProps {
   children: React.ReactNode;
 }
 
-const BaseDialog: React.FC<Props> = (props: Props) => {
-  const { children, className, containerClassName, clickSpaceDestroy, dialogName, destroy } = props;
-  const dialogStore = useDialogStore();
+const BaseDialog = observer((props: Props) => {
+  const { children, className, clickSpaceDestroy, dialogName, destroy } = props;
   const dialogContainerRef = useRef<HTMLDivElement>(null);
-  const dialogIndex = dialogStore.state.dialogStack.findIndex((item) => item === dialogName);
+  const dialogIndex = dialogStore.state.stack.findIndex((item) => item === dialogName);
 
   useEffect(() => {
-    dialogStore.pushDialogStack(dialogName);
+    dialogStore.pushDialog(dialogName);
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.code === "Escape") {
-        if (dialogName === dialogStore.topDialogStack()) {
+        if (dialogName === dialogStore.topDialog) {
           destroy();
         }
       }
@@ -57,59 +52,52 @@ const BaseDialog: React.FC<Props> = (props: Props) => {
   };
 
   return (
-    <div className={classNames("dialog-wrapper", className)} onMouseDown={handleSpaceClicked}>
-      <div ref={dialogContainerRef} className={classNames("dialog-container", containerClassName)} onMouseDown={(e) => e.stopPropagation()}>
+    <div
+      className={cn(
+        "fixed top-0 left-0 flex flex-col justify-start items-center w-full h-full pt-16 pb-8 px-4 z-1000 overflow-x-hidden overflow-y-scroll bg-transparent transition-all hide-scrollbar bg-black bg-opacity-60",
+        className,
+      )}
+      onMouseDown={handleSpaceClicked}
+    >
+      <div ref={dialogContainerRef} onMouseDown={(e) => e.stopPropagation()}>
         {children}
       </div>
     </div>
   );
-};
+});
 
 export function generateDialog<T extends DialogProps>(
   config: DialogConfig,
   DialogComponent: React.FC<T>,
-  props?: Omit<T, "destroy" | "hide">
+  props?: Omit<T, "destroy">,
 ): DialogCallback {
   const tempDiv = document.createElement("div");
   const dialog = createRoot(tempDiv);
   document.body.append(tempDiv);
-
-  setTimeout(() => {
-    tempDiv.firstElementChild?.classList.add("showup");
-  }, 0);
+  document.body.style.overflow = "hidden";
 
   const cbs: DialogCallback = {
     destroy: () => {
-      tempDiv.firstElementChild?.classList.remove("showup");
-      tempDiv.firstElementChild?.classList.add("showoff");
-      setTimeout(() => {
-        dialog.unmount();
-        tempDiv.remove();
-      }, ANIMATION_DURATION);
-    },
-    hide: () => {
-      tempDiv.firstElementChild?.classList.remove("showup");
-      tempDiv.firstElementChild?.classList.add("showoff");
+      document.body.style.removeProperty("overflow");
+      dialog.unmount();
+      tempDiv.remove();
     },
   };
 
   const dialogProps = {
     ...props,
     destroy: cbs.destroy,
-    hide: cbs.hide,
   } as T;
 
-  const Fragment = (
-    <Provider store={store}>
-      <CssVarsProvider theme={theme}>
-        <BaseDialog destroy={cbs.destroy} hide={cbs.hide} clickSpaceDestroy={true} {...config}>
-          <DialogComponent {...dialogProps} />
-        </BaseDialog>
-      </CssVarsProvider>
-    </Provider>
-  );
+  const Fragment = observer(() => (
+    <CssVarsProvider theme={theme}>
+      <BaseDialog destroy={cbs.destroy} clickSpaceDestroy={true} {...config}>
+        <DialogComponent {...dialogProps} />
+      </BaseDialog>
+    </CssVarsProvider>
+  ));
 
-  dialog.render(Fragment);
+  dialog.render(<Fragment />);
 
   return cbs;
 }

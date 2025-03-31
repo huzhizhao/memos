@@ -4,37 +4,32 @@ import (
 	"context"
 	"strings"
 
-	storepb "github.com/usememos/memos/proto/gen/store"
 	"github.com/usememos/memos/store"
 )
 
-func (d *DB) CreateWebhook(ctx context.Context, create *storepb.Webhook) (*storepb.Webhook, error) {
+func (d *DB) CreateWebhook(ctx context.Context, create *store.Webhook) (*store.Webhook, error) {
 	fields := []string{"`name`", "`url`", "`creator_id`"}
 	placeholder := []string{"?", "?", "?"}
-	args := []any{create.Name, create.Url, create.CreatorId}
-	stmt := "INSERT INTO `webhook` (" + strings.Join(fields, ", ") + ") VALUES (" + strings.Join(placeholder, ", ") + ") RETURNING `id`, `created_ts`, `updated_ts`, `row_status`"
-	var rowStatus string
+	args := []any{create.Name, create.URL, create.CreatorID}
+	stmt := "INSERT INTO `webhook` (" + strings.Join(fields, ", ") + ") VALUES (" + strings.Join(placeholder, ", ") + ") RETURNING `id`, `created_ts`, `updated_ts`"
 	if err := d.db.QueryRowContext(ctx, stmt, args...).Scan(
-		&create.Id,
+		&create.ID,
 		&create.CreatedTs,
 		&create.UpdatedTs,
-		&rowStatus,
 	); err != nil {
 		return nil, err
 	}
-
-	create.RowStatus = storepb.RowStatus(storepb.RowStatus_value[rowStatus])
 	webhook := create
 	return webhook, nil
 }
 
-func (d *DB) ListWebhooks(ctx context.Context, find *store.FindWebhook) ([]*storepb.Webhook, error) {
+func (d *DB) ListWebhooks(ctx context.Context, find *store.FindWebhook) ([]*store.Webhook, error) {
 	where, args := []string{"1 = 1"}, []any{}
 	if find.ID != nil {
-		where, args = append(where, "id = ?"), append(args, *find.ID)
+		where, args = append(where, "`id` = ?"), append(args, *find.ID)
 	}
 	if find.CreatorID != nil {
-		where, args = append(where, "creator_id = ?"), append(args, *find.CreatorID)
+		where, args = append(where, "`creator_id` = ?"), append(args, *find.CreatorID)
 	}
 
 	rows, err := d.db.QueryContext(ctx, `
@@ -42,7 +37,6 @@ func (d *DB) ListWebhooks(ctx context.Context, find *store.FindWebhook) ([]*stor
 			id,
 			created_ts,
 			updated_ts,
-			row_status,
 			creator_id,
 			name,
 			url
@@ -56,22 +50,19 @@ func (d *DB) ListWebhooks(ctx context.Context, find *store.FindWebhook) ([]*stor
 	}
 	defer rows.Close()
 
-	list := []*storepb.Webhook{}
+	list := []*store.Webhook{}
 	for rows.Next() {
-		webhook := &storepb.Webhook{}
-		var rowStatus string
+		webhook := &store.Webhook{}
 		if err := rows.Scan(
-			&webhook.Id,
+			&webhook.ID,
 			&webhook.CreatedTs,
 			&webhook.UpdatedTs,
-			&rowStatus,
-			&webhook.CreatorId,
+			&webhook.CreatorID,
 			&webhook.Name,
-			&webhook.Url,
+			&webhook.URL,
 		); err != nil {
 			return nil, err
 		}
-		webhook.RowStatus = storepb.RowStatus(storepb.RowStatus_value[rowStatus])
 		list = append(list, webhook)
 	}
 
@@ -82,11 +73,8 @@ func (d *DB) ListWebhooks(ctx context.Context, find *store.FindWebhook) ([]*stor
 	return list, nil
 }
 
-func (d *DB) UpdateWebhook(ctx context.Context, update *store.UpdateWebhook) (*storepb.Webhook, error) {
+func (d *DB) UpdateWebhook(ctx context.Context, update *store.UpdateWebhook) (*store.Webhook, error) {
 	set, args := []string{}, []any{}
-	if update.RowStatus != nil {
-		set, args = append(set, "row_status = ?"), append(args, update.RowStatus.String())
-	}
 	if update.Name != nil {
 		set, args = append(set, "name = ?"), append(args, *update.Name)
 	}
@@ -95,21 +83,18 @@ func (d *DB) UpdateWebhook(ctx context.Context, update *store.UpdateWebhook) (*s
 	}
 	args = append(args, update.ID)
 
-	stmt := "UPDATE `webhook` SET " + strings.Join(set, ", ") + " WHERE `id` = ? RETURNING `id`, `created_ts`, `updated_ts`, `row_status`, `creator_id`, `name`, `url`"
-	webhook := &storepb.Webhook{}
-	var rowStatus string
+	stmt := "UPDATE `webhook` SET " + strings.Join(set, ", ") + " WHERE `id` = ? RETURNING `id`, `created_ts`, `updated_ts`, `creator_id`, `name`, `url`"
+	webhook := &store.Webhook{}
 	if err := d.db.QueryRowContext(ctx, stmt, args...).Scan(
-		&webhook.Id,
+		&webhook.ID,
 		&webhook.CreatedTs,
 		&webhook.UpdatedTs,
-		&rowStatus,
-		&webhook.CreatorId,
+		&webhook.CreatorID,
 		&webhook.Name,
-		&webhook.Url,
+		&webhook.URL,
 	); err != nil {
 		return nil, err
 	}
-	webhook.RowStatus = storepb.RowStatus(storepb.RowStatus_value[rowStatus])
 	return webhook, nil
 }
 

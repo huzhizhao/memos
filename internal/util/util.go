@@ -41,13 +41,6 @@ func GenUUID() string {
 	return uuid.New().String()
 }
 
-func Min(x, y int) int {
-	if x < y {
-		return x
-	}
-	return y
-}
-
 var letters = []rune("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
 // RandomString returns a random string with length n.
@@ -67,4 +60,14 @@ func RandomString(n int) (string, error) {
 		}
 	}
 	return sb.String(), nil
+}
+
+// ReplaceString replaces all occurrences of old in slice with new.
+func ReplaceString(slice []string, old, new string) []string {
+	for i, s := range slice {
+		if s == old {
+			slice[i] = new
+		}
+	}
+	return slice
 }

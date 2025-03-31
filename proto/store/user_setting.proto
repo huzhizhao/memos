@@ -4,37 +4,30 @@ package memos.store;
 
 option go_package = "gen/store";
 
+enum UserSettingKey {
+  USER_SETTING_KEY_UNSPECIFIED = 0;
+  // Access tokens for the user.
+  ACCESS_TOKENS = 1;
+  // The locale of the user.
+  LOCALE = 2;
+  // The appearance of the user.
+  APPEARANCE = 3;
+  // The visibility of the memo.
+  MEMO_VISIBILITY = 4;
+  // The shortcuts of the user.
+  SHORTCUTS = 5;
+}
+
 message UserSetting {
   int32 user_id = 1;
-
   UserSettingKey key = 2;
-
   oneof value {
     AccessTokensUserSetting access_tokens = 3;
     string locale = 4;
     string appearance = 5;
     string memo_visibility = 6;
-    string telegram_user_id = 7;
+    ShortcutsUserSetting shortcuts = 7;
   }
-}
-
-enum UserSettingKey {
-  USER_SETTING_KEY_UNSPECIFIED = 0;
-
-  // Access tokens for the user.
-  USER_SETTING_ACCESS_TOKENS = 1;
-
-  // The locale of the user.
-  USER_SETTING_LOCALE = 2;
-
-  // The appearance of the user.
-  USER_SETTING_APPEARANCE = 3;
-
-  // The visibility of the memo.
-  USER_SETTING_MEMO_VISIBILITY = 4;
-
-  // The telegram user id of the user.
-  USER_SETTING_TELEGRAM_USER_ID = 5;
 }
 
 message AccessTokensUserSetting {
@@ -46,4 +39,13 @@ message AccessTokensUserSetting {
     string description = 2;
   }
   repeated AccessToken access_tokens = 1;
+}
+
+message ShortcutsUserSetting {
+  message Shortcut {
+    string id = 1;
+    string title = 2;
+    string filter = 3;
+  }
+  repeated Shortcut shortcuts = 1;
 }

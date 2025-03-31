@@ -1,12 +1,8 @@
-# Air (hot reload) generated
-.air
-
 # temp folder
 tmp
 
 # Frontend asset
 web/dist
-server/frontend/dist
 
 # build folder
 build
@@ -19,6 +15,7 @@ build
 # Docker Compose Environment File
 .env
 
-bin/air
+dist
 
-dev-dist
+# VSCode settings
+.vscode

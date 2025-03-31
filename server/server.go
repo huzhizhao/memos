@@ -3,102 +3,89 @@ package server
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"math"
+	"net"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	grpcrecovery "github.com/grpc-ecosystem/go-grpc-middleware/recovery"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/pkg/errors"
+	"github.com/soheilhy/cmux"
+	"google.golang.org/grpc"
 
-	apiv1 "github.com/usememos/memos/api/v1"
-	apiv2 "github.com/usememos/memos/api/v2"
-	"github.com/usememos/memos/plugin/telegram"
-	"github.com/usememos/memos/server/frontend"
-	"github.com/usememos/memos/server/integration"
+	storepb "github.com/usememos/memos/proto/gen/store"
 	"github.com/usememos/memos/server/profile"
-	"github.com/usememos/memos/server/service/metric"
-	versionchecker "github.com/usememos/memos/server/service/version_checker"
+	apiv1 "github.com/usememos/memos/server/router/api/v1"
+	"github.com/usememos/memos/server/router/frontend"
+	"github.com/usememos/memos/server/router/rss"
+	"github.com/usememos/memos/server/runner/memopayload"
+	"github.com/usememos/memos/server/runner/s3presign"
 	"github.com/usememos/memos/store"
 )
 
 type Server struct {
-	e *echo.Echo
-
-	ID      string
 	Secret  string
 	Profile *profile.Profile
 	Store   *store.Store
 
-	// Asynchronous runners.
-	telegramBot *telegram.Bot
+	echoServer *echo.Echo
+	grpcServer *grpc.Server
 }
 
 func NewServer(ctx context.Context, profile *profile.Profile, store *store.Store) (*Server, error) {
-	e := echo.New()
-	e.Debug = true
-	e.HideBanner = true
-	e.HidePort = true
-
 	s := &Server{
-		e:       e,
 		Store:   store,
 		Profile: profile,
-
-		// Asynchronous runners.
-		telegramBot: telegram.NewBotWithHandler(integration.NewTelegramHandler(store)),
 	}
 
-	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
-		Format: `{"time":"${time_rfc3339}","latency":"${latency_human}",` +
-			`"method":"${method}","uri":"${uri}",` +
-			`"status":${status},"error":"${error}"}` + "\n",
-	}))
+	echoServer := echo.New()
+	echoServer.Debug = true
+	echoServer.HideBanner = true
+	echoServer.HidePort = true
+	echoServer.Use(middleware.Recover())
+	s.echoServer = echoServer
 
-	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-		Skipper:      grpcRequestSkipper,
-		AllowOrigins: []string{"*"},
-		AllowMethods: []string{http.MethodGet, http.MethodHead, http.MethodPut, http.MethodPatch, http.MethodPost, http.MethodDelete},
-	}))
-
-	e.Use(middleware.TimeoutWithConfig(middleware.TimeoutConfig{
-		Skipper: timeoutSkipper,
-		Timeout: 30 * time.Second,
-	}))
-
-	serverID, err := s.getSystemServerID(ctx)
+	workspaceBasicSetting, err := s.getOrUpsertWorkspaceBasicSetting(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to retrieve system server ID")
+		return nil, errors.Wrap(err, "failed to get workspace basic setting")
 	}
-	s.ID = serverID
-
-	// Register frontend service.
-	frontendService := frontend.NewFrontendService(profile, store)
-	frontendService.Serve(ctx, e)
 
 	secret := "usememos"
 	if profile.Mode == "prod" {
-		secret, err = s.getSystemSecretSessionName(ctx)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to retrieve system secret session name")
-		}
+		secret = workspaceBasicSetting.SecretKey
 	}
 	s.Secret = secret
 
 	// Register healthz endpoint.
-	e.GET("/healthz", func(c echo.Context) error {
+	echoServer.GET("/healthz", func(c echo.Context) error {
 		return c.String(http.StatusOK, "Service ready.")
 	})
 
-	// Register API v1 endpoints.
-	rootGroup := e.Group("")
-	apiV1Service := apiv1.NewAPIV1Service(s.Secret, profile, store, s.telegramBot)
-	apiV1Service.Register(rootGroup)
+	// Serve frontend resources.
+	frontend.NewFrontendService(profile, store).Serve(ctx, echoServer)
 
-	apiV2Service := apiv2.NewAPIV2Service(s.Secret, profile, store, s.Profile.Port+1)
-	// Register gRPC gateway as api v2.
-	if err := apiV2Service.RegisterGateway(ctx, e); err != nil {
+	rootGroup := echoServer.Group("")
+
+	// Create and register RSS routes.
+	rss.NewRSSService(s.Profile, s.Store).RegisterRoutes(rootGroup)
+
+	grpcServer := grpc.NewServer(
+		// Override the maximum receiving message size to math.MaxInt32 for uploading large resources.
+		grpc.MaxRecvMsgSize(math.MaxInt32),
+		grpc.ChainUnaryInterceptor(
+			apiv1.NewLoggerInterceptor().LoggerInterceptor,
+			grpcrecovery.UnaryServerInterceptor(),
+			apiv1.NewGRPCAuthInterceptor(store, secret).AuthenticationInterceptor,
+		))
+	s.grpcServer = grpcServer
+
+	apiV1Service := apiv1.NewAPIV1Service(s.Secret, profile, store, grpcServer)
+	// Register gRPC gateway as api v1.
+	if err := apiV1Service.RegisterGateway(ctx, echoServer); err != nil {
 		return nil, errors.Wrap(err, "failed to register gRPC gateway")
 	}
 
@@ -106,81 +93,82 @@ func NewServer(ctx context.Context, profile *profile.Profile, store *store.Store
 }
 
 func (s *Server) Start(ctx context.Context) error {
-	go versionchecker.NewVersionChecker(s.Store, s.Profile).Start(ctx)
-	go s.telegramBot.Start(ctx)
+	address := fmt.Sprintf("%s:%d", s.Profile.Addr, s.Profile.Port)
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		return errors.Wrap(err, "failed to listen")
+	}
 
-	metric.Enqueue("server start")
-	return s.e.Start(fmt.Sprintf("%s:%d", s.Profile.Addr, s.Profile.Port))
+	muxServer := cmux.New(listener)
+	go func() {
+		grpcListener := muxServer.MatchWithWriters(cmux.HTTP2MatchHeaderFieldSendSettings("content-type", "application/grpc"))
+		if err := s.grpcServer.Serve(grpcListener); err != nil {
+			slog.Error("failed to serve gRPC", "error", err)
+		}
+	}()
+	go func() {
+		httpListener := muxServer.Match(cmux.HTTP1Fast(http.MethodPatch))
+		s.echoServer.Listener = httpListener
+		if err := s.echoServer.Start(address); err != nil {
+			slog.Error("failed to start echo server", "error", err)
+		}
+	}()
+	go func() {
+		if err := muxServer.Serve(); err != nil {
+			slog.Error("mux server listen error", "error", err)
+		}
+	}()
+	s.StartBackgroundRunners(ctx)
+
+	return nil
 }
 
 func (s *Server) Shutdown(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	// Shutdown echo server
-	if err := s.e.Shutdown(ctx); err != nil {
-		fmt.Printf("failed to shutdown server, error: %v\n", err)
+	// Shutdown echo server.
+	if err := s.echoServer.Shutdown(ctx); err != nil {
+		slog.Error("failed to shutdown server", slog.String("error", err.Error()))
 	}
 
-	// Close database connection
+	// Close database connection.
 	if err := s.Store.Close(); err != nil {
-		fmt.Printf("failed to close database, error: %v\n", err)
+		slog.Error("failed to close database", slog.String("error", err.Error()))
 	}
 
-	fmt.Printf("memos stopped properly\n")
+	slog.Info("memos stopped properly")
 }
 
-func (s *Server) GetEcho() *echo.Echo {
-	return s.e
+func (s *Server) StartBackgroundRunners(ctx context.Context) {
+	s3presignRunner := s3presign.NewRunner(s.Store)
+	s3presignRunner.RunOnce(ctx)
+	memopayloadRunner := memopayload.NewRunner(s.Store)
+	// Rebuild all memos' payload after server starts.
+	memopayloadRunner.RunOnce(ctx)
+
+	go s3presignRunner.Run(ctx)
 }
 
-func (s *Server) getSystemServerID(ctx context.Context) (string, error) {
-	serverIDSetting, err := s.Store.GetSystemSetting(ctx, &store.FindSystemSetting{
-		Name: apiv1.SystemSettingServerIDName.String(),
-	})
+func (s *Server) getOrUpsertWorkspaceBasicSetting(ctx context.Context) (*storepb.WorkspaceBasicSetting, error) {
+	workspaceBasicSetting, err := s.Store.GetWorkspaceBasicSetting(ctx)
 	if err != nil {
-		return "", err
+		return nil, errors.Wrap(err, "failed to get workspace basic setting")
 	}
-	if serverIDSetting == nil || serverIDSetting.Value == "" {
-		serverIDSetting, err = s.Store.UpsertSystemSetting(ctx, &store.SystemSetting{
-			Name:  apiv1.SystemSettingServerIDName.String(),
-			Value: uuid.NewString(),
+	modified := false
+	if workspaceBasicSetting.SecretKey == "" {
+		workspaceBasicSetting.SecretKey = uuid.NewString()
+		modified = true
+	}
+	if modified {
+		workspaceSetting, err := s.Store.UpsertWorkspaceSetting(ctx, &storepb.WorkspaceSetting{
+			Key:   storepb.WorkspaceSettingKey_BASIC,
+			Value: &storepb.WorkspaceSetting_BasicSetting{BasicSetting: workspaceBasicSetting},
 		})
 		if err != nil {
-			return "", err
+			return nil, errors.Wrap(err, "failed to upsert workspace setting")
 		}
+		workspaceBasicSetting = workspaceSetting.GetBasicSetting()
 	}
-	return serverIDSetting.Value, nil
-}
-
-func (s *Server) getSystemSecretSessionName(ctx context.Context) (string, error) {
-	secretSessionNameValue, err := s.Store.GetSystemSetting(ctx, &store.FindSystemSetting{
-		Name: apiv1.SystemSettingSecretSessionName.String(),
-	})
-	if err != nil {
-		return "", err
-	}
-	if secretSessionNameValue == nil || secretSessionNameValue.Value == "" {
-		secretSessionNameValue, err = s.Store.UpsertSystemSetting(ctx, &store.SystemSetting{
-			Name:  apiv1.SystemSettingSecretSessionName.String(),
-			Value: uuid.NewString(),
-		})
-		if err != nil {
-			return "", err
-		}
-	}
-	return secretSessionNameValue.Value, nil
-}
-
-func grpcRequestSkipper(c echo.Context) bool {
-	return strings.HasPrefix(c.Request().URL.Path, "/memos.api.v2.")
-}
-
-func timeoutSkipper(c echo.Context) bool {
-	if grpcRequestSkipper(c) {
-		return true
-	}
-
-	// Skip timeout for blob upload which is frequently timed out.
-	return c.Request().Method == http.MethodPost && c.Request().URL.Path == "/api/v1/resource/blob"
+	return workspaceBasicSetting, nil
 }
